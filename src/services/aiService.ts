@@ -141,7 +141,7 @@ class AIService {
           mindMapData = await mindMapService.generateMindMap(
             finalReport.content,
             request.query,
-            4 // max levels
+            10 // Increased max levels for a deeper initial map
           );
         } catch (mindMapError) {
           console.warn(

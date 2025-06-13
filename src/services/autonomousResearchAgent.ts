@@ -45,29 +45,10 @@ export interface StreamingCallback {
   onError: (error: Error) => void;
 }
 
-export interface MindMapNode {
-  id: string;
-  position: { x: number; y: number };
-  data: {
-    label: string;
-    level: number;
-    summary?: string;
-  };
-  type?: string;
-}
-
-export interface MindMapEdge {
-  id: string;
-  source: string;
-  target: string;
-  label: string;
-  animated: boolean;
-}
-
-export interface MindMapData {
-  nodes: MindMapNode[];
-  edges: MindMapEdge[];
-}
+// MindMap related interfaces are no longer needed here as mind map generation is externalized.
+// export interface MindMapNode { ... }
+// export interface MindMapEdge { ... }
+// export interface MindMapData { ... }
 
 // =====================================================================================
 // AUTONOMOUS RESEARCH AGENT CLASS
@@ -340,17 +321,18 @@ ${chunk}`;
     try {
       await this.enforceRateLimit();
 
-      const wordLimit = researchMode === "Deep" ? 500 : 200;
+      // Updated wordLimit
+      const wordLimit = researchMode === "Deep" ? 1200 : 400;
       const synthesisPrompt = `Synthesize these partial answers, all derived from a single source document, into one cohesive and comprehensive answer to the user's original question: '${userQuery}'.
 
-Your response MUST be a maximum of ${wordLimit} words and should be well-structured and definitive.
+Your response MUST be approximately ${wordLimit} words and should be well-structured and definitive. Aim for a word count between ${wordLimit} and ${wordLimit + (researchMode === "Deep" ? 200 : 100)}.
 
 Partial Answers:
 ${results.join("\n\n---\n\n")}`;
       const result = await generateText({
         model: this.googleProvider("gemini-2.0-flash-lite"),
         prompt: synthesisPrompt,
-        maxTokens: wordLimit * 2,
+        maxTokens: Math.round(wordLimit * 1.5),
         temperature: 0.7,
       });
 
@@ -369,8 +351,7 @@ ${results.join("\n\n---\n\n")}`;
 
       callbacks.onFinalAnswer(finalReport);
 
-      // Generate mind map for file-based research
-      await this.generateMindMap(result.text, userQuery, callbacks);
+      // Removed: await this.generateMindMap(result.text, userQuery, callbacks);
     } catch (error) {
       console.error("Error synthesizing file results:", error);
       callbacks.onError(new Error("Failed to synthesize file analysis"));
@@ -460,7 +441,7 @@ ${results.join("\n\n---\n\n")}`;
       });
 
       const targetSourceCount = researchMode === "Deep" ? "100-120" : "10-12";
-      let planPrompt = `You are an autonomous research agent in '${researchMode}' mode. Your goal is to answer: '${userQuery}'. 
+      let planPrompt = `You are an autonomous research agent in '${researchMode}' mode. Your goal is to answer: '${userQuery}'.
 
 Generate a strategic list of search queries to accomplish this. In Normal mode, aim for broad queries that will yield ~10-12 sources. In Deep mode, create a diverse set of specific queries to uncover ~100-120 sources.
 
@@ -512,61 +493,88 @@ Return only the queries, one per line, without numbering or additional text.`;
       const sources: Source[] = [];
       const learnings: string[] = [];
 
-      let systemPrompt = `You are a research assistant. Provide comprehensive, well-sourced information about the query. Include specific facts, recent developments, and authoritative perspectives. When mentioning information, indicate the type of source (e.g., "According to research studies...", "Government data shows...", "News reports indicate...").`;
+      let systemPrompt = `You are a research assistant. Provide comprehensive, well-sourced information about the query. Include specific facts, recent developments, and authoritative perspectives. Your response should be based on the information found through web searches.`;
 
       if (fileContext) {
-        systemPrompt += ` Context from user files: ${fileContext.substring(
+        systemPrompt += ` Additional context from user files to consider: ${fileContext.substring(
           0,
           2000
         )}`;
       }
+
+      // Use a model that supports search grounding and enable it
       const result = await streamText({
-        model: this.googleProvider("gemini-2.0-flash-lite"),
+        model: this.googleProvider("gemini-2.0-flash-exp", {
+          useSearchGrounding: true,
+        }),
         system: systemPrompt,
         prompt: query,
-        maxTokens: 1500,
+        maxTokens: 1500, // Keep or adjust as needed
         temperature: 0.7,
       });
 
       let searchContent = "";
+      let rawSources: any[] = [];
 
-      // Process the stream to get content
-      for await (const delta of result.textStream) {
-        searchContent += delta;
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          searchContent += part.textDelta;
+        } else if (part.type === "source") {
+            if (part.source && typeof part.source === 'object' && 'url' in part.source) {
+                 rawSources.push(part.source);
+            }
+        }
       }
 
-      // Simulate finding sources (in real implementation, this would come from search grounding)
-      if (searchContent.trim()) {
-        // Generate mock sources based on the content
-        const sourceCount = Math.floor(Math.random() * 5) + 3; // 3-7 sources
-        for (let i = 0; i < sourceCount; i++) {
-          const source: Source = {
-            id: `source-${sources.length + 1}`,
-            url: this.generateMockSourceUrl(query, i),
-            title: this.generateMockSourceTitle(query, i),
-            sourceType: this.getRandomSourceType(),
-          };
-          sources.push(source);
-
-          callbacks.onThinkingData({
-            type: "source_found",
-            data: { source },
-            timestamp: Date.now(),
-          });
+      if (rawSources.length === 0 && (result as any).experimental_attachments) {
+        const attachments = (result as any).experimental_attachments;
+        if (Array.isArray(attachments)) {
+            attachments.forEach((att: any) => {
+                if (att.source && att.source.url) {
+                    rawSources.push(att.source);
+                } else if (att.url && att.title) {
+                    rawSources.push(att);
+                }
+            });
         }
+      }
 
+      if (searchContent.trim()) {
         learnings.push(searchContent.trim());
-
         callbacks.onThinkingData({
           type: "learning",
           data: { summary: searchContent.substring(0, 300) + "..." },
           timestamp: Date.now(),
         });
+
+        if (rawSources.length > 0) {
+            rawSources.forEach((rawSource: any, index: number) => {
+                const source: Source = {
+                    id: `source-${Date.now()}-${index}`,
+                    url: rawSource.url || '',
+                    title: rawSource.title || new URL(rawSource.url || 'http://example.com').hostname,
+                    sourceType: this.categorizeSource(rawSource.url || ''),
+                };
+                sources.push(source);
+                callbacks.onThinkingData({
+                    type: "source_found",
+                    data: { source },
+                    timestamp: Date.now(),
+                });
+            });
+        } else {
+             callbacks.onThinkingData({
+                type: "status",
+                data: { message: "No specific sources returned by search grounding for this query." },
+                timestamp: Date.now(),
+            });
+        }
       }
 
       return { sources, learnings };
     } catch (error) {
       console.error("Web search error:", error);
+      callbacks.onError(error instanceof Error ? error : new Error("Web search failed"));
       return { sources: [], learnings: [] };
     }
   }
@@ -594,60 +602,6 @@ Return only the queries, one per line, without numbering or additional text.`;
   }
 
   /**
-   * Generate mock source URL for development
-   */
-  private generateMockSourceUrl(query: string, index: number): string {
-    const domains = [
-      "wikipedia.org",
-      "britannica.com",
-      "nature.com",
-      "ieee.org",
-      "sciencedirect.com",
-      "researchgate.net",
-      "mit.edu",
-      "stanford.edu",
-      "bbc.com",
-      "reuters.com",
-    ];
-    const domain = domains[index % domains.length];
-    const slug = query.toLowerCase().replace(/\s+/g, "-").substring(0, 30);
-    return `https://www.${domain}/articles/${slug}-${index + 1}`;
-  }
-
-  /**
-   * Generate mock source title for development
-   */
-  private generateMockSourceTitle(query: string, index: number): string {
-    const templates = [
-      `Comprehensive Study on ${query}`,
-      `Recent Developments in ${query}`,
-      `Analysis of ${query} Trends`,
-      `${query}: A Detailed Overview`,
-      `Understanding ${query} in Modern Context`,
-      `Research Findings on ${query}`,
-      `Expert Insights into ${query}`,
-      `The Future of ${query}`,
-      `${query}: Current State and Prospects`,
-      `Exploring ${query} Applications`,
-    ];
-    return templates[index % templates.length];
-  }
-
-  /**
-   * Get random source type for mock sources
-   */
-  private getRandomSourceType(): Source["sourceType"] {
-    const types: Source["sourceType"][] = [
-      "Academic",
-      "Research",
-      "Web",
-      "News",
-      "Government",
-    ];
-    return types[Math.floor(Math.random() * types.length)];
-  }
-
-  /**
    * Perform autonomous reflection on research progress
    */
   private async performReflection(
@@ -668,7 +622,7 @@ Return only the queries, one per line, without numbering or additional text.`;
 Current learnings summary:
 ${learnings.slice(-3).join("\n\n")}
 
-If the information is sufficient for a comprehensive ${wordLimit}-word report, respond with 'SUFFICIENT'. 
+If the information is sufficient for a comprehensive ${wordLimit}-word report, respond with 'SUFFICIENT'.
 If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries that would address the biggest remaining knowledge gaps.`;
 
       const result = await generateText({
@@ -726,11 +680,11 @@ If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries t
         timestamp: Date.now(),
       });
 
-      const wordLimit = researchMode === "Deep" ? 500 : 200;
+      const wordLimit = researchMode === "Deep" ? 1200 : 400;
 
-      const reportPrompt = `Synthesize all the following learnings into a single, cohesive final report answering '${userQuery}'. 
+      const reportPrompt = `Synthesize all the following learnings into a single, cohesive final report answering '${userQuery}'.
 
-Your response MUST be a maximum of ${wordLimit} words. As you write, you MUST cite your sources using bracketed numbers like [1], [2], etc., corresponding to the provided source list. The report should be well-structured and definitive.
+Your response MUST be approximately ${wordLimit} words. Aim for a word count between ${wordLimit} and ${wordLimit + (researchMode === "Deep" ? 200 : 100)}. As you write, you MUST cite your sources using bracketed numbers like [1], [2], etc., corresponding to the provided source list. The report should be well-structured, definitive, and include tables and markdown for code if appropriate to the content.
 
 Learnings:
 ${learnings.join("\n\n---\n\n")}
@@ -741,9 +695,9 @@ ${sources
   .join("\n")}`;
 
       const result = await generateText({
-        model: this.googleProvider("gemini-2.0-flash-lite"),
+        model: this.googleProvider("gemini-2.0-flash-exp"),
         prompt: reportPrompt,
-        maxTokens: wordLimit * 2,
+        maxTokens: Math.round(wordLimit * 1.5),
         temperature: 0.7,
       });
 
@@ -755,311 +709,11 @@ ${sources
 
       callbacks.onFinalAnswer(finalReport);
 
-      // Generate mind map for web-based research
-      await this.generateMindMap(result.text, userQuery, callbacks);
+      // Removed: await this.generateMindMap(result.text, userQuery, callbacks);
     } catch (error) {
       console.error("Error generating final report:", error);
       callbacks.onError(new Error("Failed to generate final report"));
     }
-  }
-
-  /**
-   * Generate hierarchical mind map from research content
-   */
-  private async generateMindMap(
-    content: string,
-    userQuery: string,
-    callbacks: StreamingCallback
-  ): Promise<MindMapData> {
-    try {
-      await this.enforceRateLimit();
-
-      callbacks.onThinkingData({
-        type: "status",
-        data: { message: "🗺️ Generating knowledge mind map..." },
-        timestamp: Date.now(),
-      });
-
-      // First, chunk the content semantically
-      const chunks = await this.semanticChunking(content);
-
-      // Generate atomic trees for each chunk
-      const atomicTrees = await Promise.all(
-        chunks.map((chunk) => this.generateAtomicTree(chunk))
-      );
-
-      // Merge trees into master tree
-      const masterTree = await this.mergeTrees(atomicTrees, userQuery);
-
-      // Convert to React Flow format
-      const mindMapData = await this.convertToReactFlowFormat(
-        masterTree,
-        userQuery
-      );
-
-      return mindMapData;
-    } catch (error) {
-      console.error("Error generating mind map:", error);
-      // Return a simple fallback mind map
-      return this.createFallbackMindMap(userQuery);
-    }
-  }
-
-  /**
-   * Semantic chunking of content
-   */
-  private async semanticChunking(content: string): Promise<string[]> {
-    try {
-      await this.enforceRateLimit();
-
-      const prompt = `Analyze the following text. Your task is to split it into an array of strings, where each string is a thematically self-contained paragraph or section. The output must be a valid JSON array of strings.
-
-Text:
-${content}`;
-
-      const result = await generateText({
-        model: this.googleProvider("gemini-2.0-flash-lite"),
-        prompt,
-        maxTokens: 2000,
-        temperature: 0.3,
-      });
-
-      try {
-        const chunks = JSON.parse(result.text);
-        return Array.isArray(chunks) ? chunks : [content];
-      } catch {
-        // Fallback to simple paragraph splitting
-        return content.split("\n\n").filter((p) => p.trim());
-      }
-    } catch (error) {
-      console.error("Semantic chunking error:", error);
-      return [content];
-    }
-  }
-
-  /**
-   * Generate atomic tree for a content chunk
-   */
-  private async generateAtomicTree(chunk: string): Promise<any> {
-    try {
-      await this.enforceRateLimit();
-
-      const prompt = `Analyze the following text chunk. Your task is to create a hierarchical summary as a 3-level deep JSON object.
-
-The root of the JSON should be the single, most important concept in the chunk.
-Its children should be the primary supporting ideas or components.
-Their children should be specific examples, data points, or details.
-
-For EVERY parent-child connection, you MUST define the connection by including a 'relationship' key with a descriptive string like 'is caused by', 'leads to', 'is an example of', 'is composed of', 'has the property of'.
-
-The output format MUST be a single JSON object with the following recursive structure: { "label": "Node Title", "relationship": "...", "children": [ ... ] }. The root node's relationship can be 'is the central topic of'.
-
-Text chunk:
-${chunk}`;
-
-      const result = await generateText({
-        model: this.googleProvider("gemini-2.0-flash-lite"),
-        prompt,
-        maxTokens: 1500,
-        temperature: 0.4,
-      });
-
-      try {
-        return JSON.parse(result.text);
-      } catch {
-        // Fallback simple structure
-        return {
-          label: chunk.substring(0, 50) + "...",
-          relationship: "is the central topic of",
-          children: [],
-        };
-      }
-    } catch (error) {
-      console.error("Atomic tree generation error:", error);
-      return {
-        label: "Content Topic",
-        relationship: "is the central topic of",
-        children: [],
-      };
-    }
-  }
-
-  /**
-   * Merge multiple atomic trees into a master tree
-   */
-  private async mergeTrees(
-    atomicTrees: any[],
-    userQuery: string
-  ): Promise<any> {
-    if (atomicTrees.length === 0) {
-      return {
-        label: userQuery,
-        relationship: "is the central topic of",
-        children: [],
-      };
-    }
-
-    let masterTree = atomicTrees[0];
-
-    for (let i = 1; i < atomicTrees.length; i++) {
-      masterTree = await this.graftTree(masterTree, atomicTrees[i]);
-    }
-
-    return masterTree;
-  }
-
-  /**
-   * Graft a partial tree onto the master tree
-   */
-  private async graftTree(masterTree: any, partialTree: any): Promise<any> {
-    try {
-      await this.enforceRateLimit();
-
-      const prompt = `You are a knowledge graph architect. Here is a 'Master Tree' and a 'Partial Tree'. Which node in the Master Tree is the most semantically related to the root of the Partial Tree? 
-
-Respond ONLY with the JSON path to the best-fit node in the Master Tree (e.g., 'root', 'root.children[0]', 'root.children[0].children[1]'). If there is no good fit, respond with 'ROOT'.
-
-Master Tree:
-${JSON.stringify(masterTree, null, 2)}
-
-Partial Tree:
-${JSON.stringify(partialTree, null, 2)}`;
-
-      const result = await generateText({
-        model: this.googleProvider("gemini-2.0-flash-lite"),
-        prompt,
-        maxTokens: 200,
-        temperature: 0.3,
-      });
-
-      const path = result.text.trim();
-
-      // Simple grafting logic - add as child to root for now
-      if (!masterTree.children) {
-        masterTree.children = [];
-      }
-      masterTree.children.push(partialTree);
-
-      return masterTree;
-    } catch (error) {
-      console.error("Tree grafting error:", error);
-      return masterTree;
-    }
-  }
-
-  /**
-   * Convert tree structure to React Flow format
-   */
-  private async convertToReactFlowFormat(
-    tree: any,
-    userQuery: string
-  ): Promise<MindMapData> {
-    const nodes: MindMapNode[] = [];
-    const edges: MindMapEdge[] = [];
-    let nodeIdCounter = 0;
-
-    const processNode = (
-      node: any,
-      level: number,
-      parentId?: string,
-      x: number = 0,
-      y: number = 0
-    ) => {
-      const nodeId = `node-${nodeIdCounter++}`;
-
-      nodes.push({
-        id: nodeId,
-        position: { x, y },
-        data: {
-          label: node.label || "Topic",
-          level,
-          summary: node.summary,
-        },
-        type: "default",
-      });
-
-      if (parentId && node.relationship) {
-        edges.push({
-          id: `edge-${parentId}-${nodeId}`,
-          source: parentId,
-          target: nodeId,
-          label: node.relationship,
-          animated: true,
-        });
-      }
-
-      if (node.children && Array.isArray(node.children)) {
-        const childSpacing = 300;
-        const startX = x - ((node.children.length - 1) * childSpacing) / 2;
-
-        node.children.forEach((child: any, index: number) => {
-          processNode(
-            child,
-            level + 1,
-            nodeId,
-            startX + index * childSpacing,
-            y + 150
-          );
-        });
-      }
-    };
-
-    processNode(tree, 1);
-
-    return { nodes, edges };
-  }
-
-  /**
-   * Create fallback mind map when generation fails
-   */
-  private createFallbackMindMap(userQuery: string): MindMapData {
-    return {
-      nodes: [
-        {
-          id: "root",
-          position: { x: 0, y: 0 },
-          data: {
-            label: userQuery,
-            level: 1,
-            summary: "Main research topic",
-          },
-        },
-        {
-          id: "child1",
-          position: { x: -200, y: 150 },
-          data: {
-            label: "Key Findings",
-            level: 2,
-            summary: "Primary research outcomes",
-          },
-        },
-        {
-          id: "child2",
-          position: { x: 200, y: 150 },
-          data: {
-            label: "Related Topics",
-            level: 2,
-            summary: "Connected research areas",
-          },
-        },
-      ],
-      edges: [
-        {
-          id: "edge-root-child1",
-          source: "root",
-          target: "child1",
-          label: "reveals",
-          animated: true,
-        },
-        {
-          id: "edge-root-child2",
-          source: "root",
-          target: "child2",
-          label: "connects to",
-          animated: true,
-        },
-      ],
-    };
   }
 }
 
