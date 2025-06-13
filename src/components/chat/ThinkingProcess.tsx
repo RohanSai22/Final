@@ -120,7 +120,7 @@ const ThinkingProcess = ({ steps, isVisible }: ThinkingProcessProps) => {
                       {step.status}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-300 mt-1 leading-relaxed">
+                  <p className="text-sm text-gray-300 mt-1 leading-relaxed break-words">
                     {step.content}
                   </p>
                 </div>

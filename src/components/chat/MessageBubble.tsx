@@ -1,6 +1,7 @@
 import React from "react";
 import { Card } from "@/components/ui/card";
-import { FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Brain } from "lucide-react";
 import ThinkingProcess from "./ThinkingProcess";
 import AutonomousThinkingProcess from "./AutonomousThinkingProcess";
 import FinalReportDisplay from "./FinalReportDisplay";
@@ -49,27 +50,26 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
       <div className="flex justify-end">
         <Card className="max-w-3xl p-6 bg-gradient-to-r from-emerald-600/20 to-cyan-600/20 text-white ml-auto border border-emerald-500/30 backdrop-blur-sm rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300">
           <div className="space-y-3">
-            <p className="text-lg leading-relaxed">{message.content}</p>
+            <p className="text-lg leading-relaxed break-words">{message.content}</p>
+            {/* Display structured file information */}
             {message.files && message.files.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm opacity-80 flex items-center">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Attached Files:
+              <div className="mt-3 pt-3 border-t border-emerald-500/30">
+                <p className="text-sm text-slate-300 mb-2 flex items-center">
+                  <FileText className="h-4 w-4 mr-2 opacity-80" />
+                  Attached files:
                 </p>
-                {message.files.map((file, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center p-3 bg-slate-700/40 rounded-2xl border border-slate-600/50"
-                  >
-                    <FileText className="h-4 w-4 text-emerald-400 mr-3" />
-                    <span className="text-sm text-slate-300">{file.name}</span>
-                    {file.wordCount && (
-                      <span className="ml-auto text-xs text-slate-400">
-                        {file.wordCount} words
-                      </span>
-                    )}
-                  </div>
-                ))}
+                <div className="flex flex-wrap gap-2">
+                  {message.files.map((file: { name: string, type: string }, index: number) => (
+                    <div
+                      key={index}
+                      className="bg-slate-700/50 text-xs text-slate-300 px-2.5 py-1.5 rounded-lg flex items-center border border-slate-600/70"
+                      title={`Type: ${file.type}`}
+                    >
+                      <FileText className="h-3.5 w-3.5 mr-1.5 text-emerald-400/70" />
+                      <span className="break-all">{file.name}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -114,7 +114,7 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
                           href={source.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-slate-300 hover:text-cyan-400 transition-colors hover:underline"
+                           className="text-slate-300 hover:text-cyan-400 transition-colors hover:underline break-all"
                         >
                           {source.title}
                         </a>
@@ -127,6 +127,20 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
                 </div>
               )}
             </>
+          )}
+          {/* View Thinking Button for AI messages */}
+          {message.type === 'ai' && hasThinkingData(message.id) && (
+            <div className="flex justify-end mt-4 pt-4 border-t border-slate-700/50">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-500"
+                onClick={() => onViewThinking(message.id)}
+              >
+                <Brain className="h-3.5 w-3.5 mr-2" />
+                View Thinking
+              </Button>
+            </div>
           )}
         </div>
       </Card>

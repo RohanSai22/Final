@@ -30,7 +30,7 @@ const StreamingText = ({
   return (
     <div className="text-gray-100 leading-relaxed">
       <div
-        className="whitespace-pre-wrap"
+        className="whitespace-pre-wrap break-words"
         dangerouslySetInnerHTML={{
           __html: displayedText
             .replace(/\n/g, "<br>")

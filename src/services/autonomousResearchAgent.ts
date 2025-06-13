@@ -681,10 +681,11 @@ If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries t
       });
 
       const wordLimit = researchMode === "Deep" ? 1200 : 400;
+      const upperWordLimit = researchMode === "Deep" ? 1400 : 500;
 
       const reportPrompt = `Synthesize all the following learnings into a single, cohesive final report answering '${userQuery}'.
 
-Your response MUST be approximately ${wordLimit} words. Aim for a word count between ${wordLimit} and ${wordLimit + (researchMode === "Deep" ? 200 : 100)}. As you write, you MUST cite your sources using bracketed numbers like [1], [2], etc., corresponding to the provided source list. The report should be well-structured, definitive, and include tables and markdown for code if appropriate to the content.
+Your response MUST be approximately ${wordLimit}-${upperWordLimit} words. Aim for a word count between ${wordLimit} and ${upperWordLimit}. As you write, you MUST cite your sources using bracketed numbers like [1], [2], etc., corresponding to the provided source list. The report should be well-structured, definitive, and include tables and markdown for code if appropriate to the content.
 
 Learnings:
 ${learnings.join("\n\n---\n\n")}

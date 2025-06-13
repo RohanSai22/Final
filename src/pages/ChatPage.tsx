@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Map, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import MindMap from "@/components/ModernMindMap"; // Assuming ModernMindMap is the correct component
 import { toast } from "@/hooks/use-toast";
 import ThinkingProcess from "@/components/chat/ThinkingProcess";
@@ -89,6 +96,10 @@ const ChatPage = () => {
   const [originalQuery, setOriginalQuery] = useState("");
   const [isAutonomousMode, setIsAutonomousMode] = useState(true);
 
+  // State for viewing historical thinking process
+  const [viewingThinkingForMessageId, setViewingThinkingForMessageId] = useState<string | null>(null);
+  const [retrievedThinkingStream, setRetrievedThinkingStream] = useState<ThinkingStreamData[] | null>(null);
+
   useEffect(() => {
     if (location.state) {
       const { query, files, deepResearch, autonomousMode } = location.state;
@@ -103,6 +114,26 @@ const ChatPage = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
+
+  const handleViewThinking = (messageId: string) => {
+    try {
+      const storedData = localStorage.getItem(`thinking_process_${messageId}`);
+      if (storedData) {
+        const parsedData = JSON.parse(storedData) as ThinkingStreamData[]; // Assuming it's ThinkingStreamData[]
+        setRetrievedThinkingStream(parsedData);
+        setViewingThinkingForMessageId(messageId);
+      } else {
+        toast({ title: "Not Found", description: "Thinking process data not found for this message.", variant: "default" });
+        setRetrievedThinkingStream(null);
+        setViewingThinkingForMessageId(null);
+      }
+    } catch (error) {
+      console.error("Failed to retrieve or parse thinking process from localStorage:", error);
+      toast({ title: "Error", description: "Could not load thinking process.", variant: "destructive" });
+      setRetrievedThinkingStream(null);
+      setViewingThinkingForMessageId(null);
+    }
+  };
 
   const handleNodeExpand = async (nodeId: string) => {
     if (!fullMindMapData) {
@@ -206,11 +237,15 @@ const ChatPage = () => {
     files: any[],
     deepResearch: boolean
   ) => {
+    const filesForDisplay = files && Array.isArray(files)
+      ? files.map((f: UploadedFile) => ({ name: f.name, type: f.type || 'unknown' }))
+      : [];
+
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       type: "user",
       content: query,
-      files,
+      files: filesForDisplay.length > 0 ? filesForDisplay : undefined,
       timestamp: new Date(),
     };
 
@@ -262,8 +297,27 @@ const ChatPage = () => {
               setMessages((prev) => [...prev, aiMessage]);
 
               // Generate mind map after final answer
-              const mindMap = await mindMapService.generateMindMap(report.content, query, 10);
-              if (mindMap) processAndSetMindMapData(mindMap);
+              if (mindMapService && typeof mindMapService.generateMindMap === 'function') {
+                const mindMap = await mindMapService.generateMindMap(report.content, query, 10);
+                if (mindMap) processAndSetMindMapData(mindMap);
+              } else {
+                console.error("mindMapService or generateMindMap method is not available");
+                toast({
+                  title: "Mind Map Error",
+                  description: "Mind map generation may fail due to an initialization issue.",
+                  variant: "destructive",
+                });
+              }
+
+              // Save thinking process to localStorage
+              if (aiMessage.id && currentThinkingStreamData && currentThinkingStreamData.length > 0) {
+                try {
+                  localStorage.setItem(`thinking_process_${aiMessage.id}`, JSON.stringify(currentThinkingStreamData));
+                } catch (e) {
+                  console.error("Failed to save thinking process to localStorage:", e);
+                  toast({ title: "Storage Error", description: "Could not save thinking process.", variant: "destructive" });
+                }
+              }
 
               setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
             },
@@ -292,6 +346,16 @@ const ChatPage = () => {
             setMessages((prev) => [...prev, aiMessage]);
             if (response.mindMap) processAndSetMindMapData(response.mindMap);
 
+            // Save thinking process to localStorage
+            if (aiMessage.id && response.thinkingProcess && response.thinkingProcess.length > 0) {
+              try {
+                localStorage.setItem(`thinking_process_${aiMessage.id}`, JSON.stringify(response.thinkingProcess));
+              } catch (e) {
+                console.error("Failed to save thinking process to localStorage:", e);
+                toast({ title: "Storage Error", description: "Could not save thinking process for non-autonomous research.", variant: "destructive" });
+              }
+            }
+
             setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
           },
         };
@@ -307,9 +371,14 @@ const ChatPage = () => {
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() && uploadedFiles.length === 0) return;
+
+    const filesForDisplay = uploadedFiles.length > 0
+      ? uploadedFiles.map((f: UploadedFile) => ({ name: f.name, type: f.type || 'unknown' }))
+      : [];
+
     const userMessage: ChatMessage = {
       id: Date.now().toString(), type: "user", content: newMessage,
-      files: uploadedFiles.length > 0 ? uploadedFiles : undefined, timestamp: new Date(),
+      files: filesForDisplay.length > 0 ? filesForDisplay : undefined, timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsProcessing(true);
@@ -343,6 +412,17 @@ const ChatPage = () => {
                 const initialNodeIds = new Set(initialNodes.map(node => node.id));
                 const initialEdges = response.mindMap.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
                 setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+            }
+
+            // Save thinking process to localStorage for follow-up
+            if (aiMessage.id && response.thinkingProcess && response.thinkingProcess.length > 0) {
+              try {
+                localStorage.setItem(`thinking_process_${aiMessage.id}`, JSON.stringify(response.thinkingProcess));
+              } catch (e) {
+                console.error("Failed to save thinking process to localStorage for follow-up:", e);
+                // Potentially a different toast or silent fail if preferred for follow-ups
+                toast({ title: "Storage Error", description: "Could not save thinking process for this follow-up.", variant: "destructive" });
+              }
             }
             setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false);
           },
@@ -398,6 +478,7 @@ const ChatPage = () => {
         setIsProcessing(true);
         toast({title: "Generating Mind Map", description: "Please wait..."});
         try {
+          if (mindMapService && typeof mindMapService.generateMindMap === 'function') {
             const mindMap = await mindMapService.generateMindMap(lastAiMessage.content, originalQuery, 10);
             if (mindMap) {
                 setFullMindMapData(mindMap);
@@ -409,6 +490,14 @@ const ChatPage = () => {
             } else {
                  toast({ title: "Mind Map Error", description: "Could not generate mind map data.", variant: "destructive" });
             }
+          } else {
+            console.error("mindMapService or generateMindMap method is not available");
+            toast({
+              title: "Mind Map Error",
+              description: "Mind map generation may fail due to an initialization issue. Service not found.",
+              variant: "destructive",
+            });
+          }
         } catch (error: any) {
             toast({ title: "Mind Map Error", description: error.message || "Failed to generate mind map.", variant: "destructive" });
         } finally {
@@ -420,6 +509,11 @@ const ChatPage = () => {
       return;
     }
     setShowMindMap(true);
+  };
+
+  const closeThinkingProcessDialog = () => {
+    setViewingThinkingForMessageId(null);
+    setRetrievedThinkingStream(null);
   };
 
   return (
@@ -448,7 +542,14 @@ const ChatPage = () => {
         <div className={`chat-container ${showMindMap ? "w-1/2" : "w-full"} flex flex-col`}>
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <div className="max-w-4xl mx-auto space-y-6">
-              {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+              {messages.map((message) => (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  onViewThinking={handleViewThinking}
+                  hasThinkingData={(messageId) => !!localStorage.getItem(`thinking_process_${messageId}`)}
+                />
+              ))}
               {isProcessing && messages.length > 0 && messages[messages.length-1].type === 'user' && ( // Show thinking only if last message is user and processing
                 <div className="flex justify-start">
                   <div className="max-w-3xl">
@@ -486,6 +587,25 @@ const ChatPage = () => {
           </div>
         )}
       </div>
+
+      {/* Dialog for Viewing Thinking Process */}
+      <Dialog open={viewingThinkingForMessageId !== null} onOpenChange={(isOpen) => { if (!isOpen) closeThinkingProcessDialog(); }}>
+        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-3xl h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Retrieved AI Thinking Process</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto p-4 rounded-md bg-slate-850 custom-scrollbar">
+            {retrievedThinkingStream && retrievedThinkingStream.length > 0 ? (
+              <ThinkingProcess streamData={retrievedThinkingStream} isAutonomous={true} isVisible={true} />
+            ) : (
+              <p>No thinking process data to display or data is empty.</p>
+            )}
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={closeThinkingProcessDialog} className="border-slate-600 hover:border-slate-500">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
