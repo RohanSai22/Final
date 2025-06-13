@@ -191,8 +191,9 @@ class FileProcessingService {
       return this.cleanText(result.value);
     } catch (error) {
       console.error("DOC extraction error:", error);
+      // More specific error message as requested
       throw new Error(
-        "Failed to extract text from DOC file. Please convert to DOCX or PDF format."
+        "Failed to extract text from .doc file. Please try converting it to DOCX or PDF, or ensure it's a compatible Word document."
       );
     }
   }

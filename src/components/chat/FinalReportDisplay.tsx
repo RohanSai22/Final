@@ -11,6 +11,22 @@ import {
   Building,
   GraduationCap,
 } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+// Helper function to process citations
+const processCitations = (markdownContent: string, sourcesCount: number): string => {
+  if (!markdownContent) return "";
+  return markdownContent.replace(/\[(\d+)\]/g, (match, numberStr) => {
+    const number = parseInt(numberStr, 10);
+    if (number > 0 && number <= sourcesCount) {
+      // Ensure the link text itself is also Markdown escaped if necessary,
+      // but for "[N]" it's simple. Using `match` directly is fine.
+      return `[${match}](#source-${number})`;
+    }
+    return match; // Return original if not a valid citation number
+  });
+};
 
 interface Source {
   id: string;
@@ -54,7 +70,10 @@ const FinalReportDisplay = ({
   wordCount,
   isAutonomous = false,
 }: FinalReportProps) => {
-  // Extract citations from content (e.g., [1], [2], etc.)
+  // Process content for clickable citations
+  const processedContent = processCitations(content, sources.length);
+
+  // Extract citations from original content for summary (optional, could be removed if redundant)
   const citationRegex = /\[(\d+)\]/g;
   const citations = [...content.matchAll(citationRegex)];
 
@@ -90,9 +109,9 @@ const FinalReportDisplay = ({
       {/* Report Content */}
       <Card className="bg-slate-800/40 border border-slate-700/50 backdrop-blur-sm p-6 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300">
         <div className="prose prose-invert prose-slate max-w-none">
-          <div className="text-slate-200 leading-relaxed whitespace-pre-wrap text-justify">
-            {content}
-          </div>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {processedContent}
+          </ReactMarkdown>
         </div>
       </Card>
       {/* Sources Section */}
@@ -108,10 +127,11 @@ const FinalReportDisplay = ({
                 const { icon: Icon, type, color } = getSourceInfo(source);
                 return (
                   <div
-                    key={index}
+                    key={source.id || index} // Use source.id if available and unique, otherwise fallback to index
+                    id={`source-${index + 1}`} // ID for linking
                     className="flex items-start space-x-3 p-4 bg-slate-700/30 rounded-2xl hover:bg-slate-700/50 transition-all duration-300 border border-slate-600/30 hover:border-cyan-500/50"
                   >
-                    <div className="flex-shrink-0">
+                    <div className="flex-shrink-0 pt-1"> {/* Adjusted padding for alignment */}
                       <span
                         className={`inline-flex items-center justify-center h-7 w-7 ${color} bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-xs font-medium rounded-full shadow-md`}
                       >
@@ -119,29 +139,32 @@ const FinalReportDisplay = ({
                       </span>
                     </div>{" "}
                     <div className="flex-1 min-w-0">
-                      <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-cyan-400 hover:text-cyan-300 text-sm break-all transition-colors duration-200"
-                      >
-                        {source.title}
-                      </a>
-                      <div className="text-xs text-slate-500 mt-1">
+                      <div className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors duration-200">
+                        <span className="font-semibold">{index + 1}. </span>
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline" // Minimal styling, rely on prose for link color
+                        >
+                          {source.title}
+                        </a>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1 break-all">
                         {source.url}
                       </div>
                     </div>
-                    <ExternalLink className="h-3 w-3 text-slate-400 flex-shrink-0 mt-1 opacity-60" />
+                    {/* Removed the small ExternalLink icon from here to reduce clutter, main link is clear */}
                   </div>
                 );
               })}
             </div>
 
-            {/* Citation Summary */}
+            {/* Citation Summary (optional, could be removed if deemed redundant by clickable in-text citations) */}
             {citations.length > 0 && (
               <div className="mt-4 pt-4 border-t border-slate-700/50">
                 <p className="text-xs text-slate-400 mb-2">
-                  Citations found in report: {citations.length}
+                  Citations found in original report text: {citations.length}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {[...new Set(citations.map((c) => parseInt(c[1])))]

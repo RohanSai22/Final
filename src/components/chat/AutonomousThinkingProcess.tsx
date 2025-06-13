@@ -194,9 +194,28 @@ const AutonomousThinkingStream = ({
         );
 
       case "source_found":
+        const source = item.data.source; // data.source contains the Source object
+        if (!source || !source.url) return null;
         return (
-          <div key={index} className="ml-7 text-xs text-gray-400 py-1">
-            <span className="text-cyan-400">→</span> {item.data.url}
+          <div key={index} className="ml-7 text-xs py-1 flex items-center space-x-2 group transition-all hover:bg-slate-700/50 rounded-md p-1 -m-1">
+            <Globe className="h-3.5 w-3.5 text-cyan-500 flex-shrink-0" />
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan-400 hover:text-cyan-300 hover:underline truncate"
+              title={source.url}
+            >
+              {source.title || new URL(source.url).hostname}
+            </a>
+            {source.sourceType && (
+              <Badge
+                variant="outline"
+                className="text-xs bg-slate-600 border-slate-500 text-slate-300 px-1.5 py-0.5 group-hover:border-cyan-500 transition-colors"
+              >
+                {source.sourceType}
+              </Badge>
+            )}
           </div>
         );
 

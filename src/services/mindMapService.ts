@@ -76,8 +76,8 @@ class MindMapService {
     try {
       this.apiKey = (import.meta.env as any).VITE_GOOGLE_AI_API_KEY;
       if (!this.apiKey) {
-        console.warn("Google AI API key not found for Mind Map Service");
-        return;
+        console.error("Google AI API key not found for Mind Map Service. Mind map generation will likely fail.");
+        throw new Error("Google AI API key not found for Mind Map Service. Ensure VITE_GOOGLE_AI_API_KEY is set in your environment variables.");
       }
       console.log("🗺️ Mind Map Service initialized");
     } catch (error) {
