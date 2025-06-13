@@ -32,7 +32,7 @@ import {
   fileProcessingService,
   type FileProcessingResult,
 } from "@/services/fileProcessingService";
-import type { MindMapNode as IMindMapNode, MindMapEdge as IMindMapEdge } from "@/services/mindMapService"; // For stricter typing if needed
+import { mindMapService, type MindMapNode as IMindMapNode, type MindMapEdge as IMindMapEdge } from "@/services/mindMapService"; // For stricter typing if needed
 
 interface ChatMessage {
   id: string;

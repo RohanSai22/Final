@@ -42,9 +42,11 @@ interface ChatMessage {
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  hasThinkingData: (messageId: string) => boolean;
+  onViewThinking: (messageId: string) => void;
 }
 
-const MessageBubble = ({ message }: MessageBubbleProps) => {
+const MessageBubble = ({ message, hasThinkingData, onViewThinking }: MessageBubbleProps) => {
   if (message.type === "user") {
     return (
       <div className="flex justify-end">
