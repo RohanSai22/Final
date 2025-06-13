@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Map, X } from "lucide-react";
-import MindMap from "@/components/ModernMindMap";
+import MindMap from "@/components/ModernMindMap"; // Assuming ModernMindMap is the correct component
 import { toast } from "@/hooks/use-toast";
 import ThinkingProcess from "@/components/chat/ThinkingProcess";
 import AutonomousThinkingProcess from "@/components/chat/AutonomousThinkingProcess";
@@ -14,7 +14,7 @@ import {
   type ThinkingStreamData,
   type FinalReport,
   type Source,
-  type MindMapData,
+  type MindMapData, // Assuming this is { nodes: MindMapNode[], edges: MindMapEdge[] }
   type AIServiceCallbacks,
 } from "@/services/aiService";
 import {
@@ -25,6 +25,7 @@ import {
   fileProcessingService,
   type FileProcessingResult,
 } from "@/services/fileProcessingService";
+import type { MindMapNode as IMindMapNode, MindMapEdge as IMindMapEdge } from "@/services/mindMapService"; // For stricter typing if needed
 
 interface ChatMessage {
   id: string;
@@ -63,6 +64,8 @@ interface UploadedFile {
   error?: string;
 }
 
+const INITIAL_DISPLAY_LEVEL = 3;
+
 const ChatPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -76,7 +79,12 @@ const ChatPage = () => {
     ThinkingStreamData[]
   >([]);
   const [showMindMap, setShowMindMap] = useState(false);
-  const [mindMapData, setMindMapData] = useState<any>(null);
+
+  // Renamed state for full mind map data
+  const [fullMindMapData, setFullMindMapData] = useState<MindMapData | null>(null);
+  // New state for displayed mind map data
+  const [displayedMindMapData, setDisplayedMindMapData] = useState<MindMapData | null>(null);
+
   const [streamingContent, setStreamingContent] = useState("");
   const [originalQuery, setOriginalQuery] = useState("");
   const [isAutonomousMode, setIsAutonomousMode] = useState(true);
@@ -97,35 +105,101 @@ const ChatPage = () => {
   }, [messages, streamingContent]);
 
   const handleNodeExpand = async (nodeId: string) => {
+    if (!fullMindMapData) {
+      toast({ title: "Error", description: "Full mind map data not available for expansion.", variant: "destructive" });
+      return;
+    }
     try {
-      console.log("Expanding node:", nodeId);
+      console.log("Expanding node via AI:", nodeId);
+      setIsProcessing(true); // Indicate background activity
 
       const expansion = await aiService.expandMindMapNode(
         nodeId,
-        mindMapData,
+        fullMindMapData, // Use full map data for AI context
         originalQuery
       );
 
-      // Merge the new nodes and edges with existing mind map
-      setMindMapData((prevData) => ({
-        nodes: [...prevData.nodes, ...expansion.newNodes],
-        edges: [...prevData.edges, ...expansion.newEdges],
-      }));
-
-      toast({
-        title: "Node Expanded",
-        description:
-          "Additional details have been generated and added to the mind map.",
-      });
+      if (expansion.newNodes.length > 0 || expansion.newEdges.length > 0) {
+        // Merge into fullMindMapData
+        setFullMindMapData(prevData => ({
+          nodes: [...(prevData?.nodes || []), ...expansion.newNodes],
+          edges: [...(prevData?.edges || []), ...expansion.newEdges],
+        }));
+        // Also merge into displayedMindMapData
+        setDisplayedMindMapData(prevData => ({
+          nodes: [...(prevData?.nodes || []), ...expansion.newNodes],
+          edges: [...(prevData?.edges || []), ...expansion.newEdges],
+        }));
+        toast({
+          title: "Node Expanded by AI",
+          description: "New details added to the mind map.",
+        });
+      } else {
+        toast({
+          title: "No New Information",
+          description: "AI expansion did not yield further details for this node.",
+        });
+      }
     } catch (error) {
-      console.error("Error expanding node:", error);
+      console.error("Error expanding node with AI:", error);
       toast({
-        title: "Expansion Failed",
-        description: "Failed to expand node. Please try again.",
+        title: "AI Expansion Failed",
+        description: "Failed to expand node using AI. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsProcessing(false);
     }
   };
+
+  const handleNodeReveal = (nodeId: string) => {
+    if (!fullMindMapData || !displayedMindMapData) return;
+
+    const existingNodeIds = new Set(displayedMindMapData.nodes.map(n => n.id));
+
+    // Find direct children of nodeId from fullMindMapData that are not yet displayed
+    const newChildNodes = fullMindMapData.nodes.filter(potentialChild => {
+      if (existingNodeIds.has(potentialChild.id)) return false;
+      return fullMindMapData.edges.some(edge => edge.source === nodeId && edge.target === potentialChild.id);
+    });
+
+    if (newChildNodes.length === 0) {
+      // toast({ title: "No more pre-existing children to reveal.", description: "Consider AI expansion for new details." });
+      // Optionally, trigger AI expansion if no children to reveal.
+      // For now, we do nothing or provide a subtle hint.
+      // handleNodeExpand(nodeId); // Example: falling back to AI expansion
+      return;
+    }
+
+    const newChildNodeIds = new Set(newChildNodes.map(n => n.id));
+
+    // Find edges connecting these new children to the graph (to parent or among themselves)
+    const newEdges = fullMindMapData.edges.filter(edge => {
+      const sourceIsNew = newChildNodeIds.has(edge.source);
+      const targetIsNew = newChildNodeIds.has(edge.target);
+      const sourceIsParent = edge.source === nodeId;
+      // const targetIsParent = edge.target === nodeId; // Should not happen if it's a child
+
+      // Edge from parent (nodeId) to a new child
+      if (sourceIsParent && targetIsNew) return true;
+      // Edges among the new children themselves (if any)
+      if (sourceIsNew && targetIsNew) return true;
+      // Edges from other already displayed nodes to new children (less common for tree expansion)
+      if (existingNodeIds.has(edge.source) && targetIsNew) return true;
+      if (existingNodeIds.has(edge.target) && sourceIsNew) return true;
+
+      return false;
+    });
+
+    const displayedEdgeIds = new Set(displayedMindMapData.edges.map(e => e.id));
+    const uniqueNewEdges = newEdges.filter(edge => !displayedEdgeIds.has(edge.id));
+
+    setDisplayedMindMapData(prev => ({
+      nodes: [...(prev?.nodes || []), ...newChildNodes],
+      edges: [...(prev?.edges || []), ...uniqueNewEdges],
+    }));
+  };
+
 
   const handleInitialQuery = async (
     query: string,
@@ -141,6 +215,7 @@ const ChatPage = () => {
     };
 
     setMessages([userMessage]);
+    setOriginalQuery(query); // Save original query for mind map context
     await processResearchQuery(query, files, deepResearch);
   };
 
@@ -153,322 +228,195 @@ const ChatPage = () => {
     setStreamingContent("");
     setCurrentThinking([]);
     setCurrentThinkingStreamData([]);
+    setFullMindMapData(null); // Reset full map data
+    setDisplayedMindMapData(null); // Reset displayed map data
+
+    const processAndSetMindMapData = (mindMap: MindMapData) => {
+      setFullMindMapData(mindMap);
+      const initialNodes = mindMap.nodes.filter(
+        (node) => node.data.level <= INITIAL_DISPLAY_LEVEL
+      );
+      const initialNodeIds = new Set(initialNodes.map(node => node.id));
+      const initialEdges = mindMap.edges.filter(
+        (edge) => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target)
+      );
+      setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+    };
 
     try {
-      console.log("Starting autonomous research process for:", query);
-
-      // Convert uploaded files to File objects for the autonomous service
-      const fileObjects: File[] =
-        files?.map((f) => f.file).filter(Boolean) || [];
+      console.log("Starting research process for:", query);
+      const fileObjects: File[] = files?.map((f) => f.file).filter(Boolean) || [];
       const researchMode = deepResearch ? "Deep" : "Normal";
 
       if (isAutonomousMode) {
-        // Use the new autonomous research agent
         await autonomousResearchAgent.conductResearch(
-          query,
-          fileObjects,
-          researchMode,
+          query, fileObjects, researchMode,
           {
-            onThinkingData: (streamData) => {
-              setCurrentThinkingStreamData((prev) => [...prev, streamData]);
-            },
+            onThinkingData: (streamData) => setCurrentThinkingStreamData((prev) => [...prev, streamData]),
             onFinalAnswer: async (report) => {
               const aiMessage: ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                type: "ai",
-                content: report.content,
-                thinkingStreamData: currentThinkingStreamData,
-                sources: report.sources,
-                timestamp: new Date(),
-                isAutonomous: true,
+                id: (Date.now() + 1).toString(), type: "ai", content: report.content,
+                thinkingStreamData: currentThinkingStreamData, sources: report.sources,
+                timestamp: new Date(), isAutonomous: true,
               };
-
               setMessages((prev) => [...prev, aiMessage]);
-              setCurrentThinkingStreamData([]);
-              setIsProcessing(false);
-              setStreamingContent("");
+
+              // Generate mind map after final answer
+              const mindMap = await mindMapService.generateMindMap(report.content, query, 10);
+              if (mindMap) processAndSetMindMapData(mindMap);
+
+              setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
             },
             onError: (error) => {
               console.error("Autonomous research error:", error);
-              toast({
-                title: "Research Error",
-                description:
-                  "Failed to complete autonomous research. Please try again.",
-                variant: "destructive",
-              });
+              toast({ title: "Research Error", description: error.message || "Failed to complete research.", variant: "destructive" });
               setIsProcessing(false);
             },
           }
         );
       } else {
-        // Fallback to new aiService for non-autonomous mode
         const aiCallbacks: AIServiceCallbacks = {
-          onThinkingUpdate: (data) => {
-            setCurrentThinkingStreamData((prev) => [...prev, data]);
-          },
-          onProgress: (stage, progress) => {
-            console.log(`Research progress: ${stage} (${progress}%)`);
-          },
+          onThinkingUpdate: (data) => setCurrentThinkingStreamData((prev) => [...prev, data]),
+          onProgress: (stage, progress) => console.log(`Research progress: ${stage} (${progress}%)`),
           onError: (error) => {
             console.error("Research error:", error);
-            toast({
-              title: "Error",
-              description:
-                "Failed to process research query. Please try again.",
-              variant: "destructive",
-            });
-            setIsProcessing(false);
-            setStreamingContent("");
+            toast({ title: "Error", description: error.message || "Failed to process research.", variant: "destructive" });
+            setIsProcessing(false); setStreamingContent("");
           },
           onComplete: (response) => {
             const aiMessage: ChatMessage = {
-              id: (Date.now() + 1).toString(),
-              type: "ai",
-              content: response.finalReport.content,
-              thinkingStreamData: response.thinkingProcess,
-              sources: response.finalReport.sources,
-              timestamp: new Date(),
-              isAutonomous: false,
+              id: (Date.now() + 1).toString(), type: "ai", content: response.finalReport.content,
+              thinkingStreamData: response.thinkingProcess, sources: response.finalReport.sources,
+              timestamp: new Date(), isAutonomous: false,
             };
-
             setMessages((prev) => [...prev, aiMessage]);
-            setMindMapData(response.mindMap);
-            setCurrentThinking([]);
-            setCurrentThinkingStreamData([]);
-            setIsProcessing(false);
-            setStreamingContent("");
+            if (response.mindMap) processAndSetMindMapData(response.mindMap);
+
+            setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
           },
         };
-
-        await aiService.processResearch(
-          {
-            query,
-            files: fileObjects,
-            researchMode,
-          },
-          aiCallbacks
-        );
+        await aiService.processResearch({ query, files: fileObjects, researchMode }, aiCallbacks);
       }
-
       console.log("Research process completed successfully");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing research:", error);
-      toast({
-        title: "Error",
-        description: "Failed to process research query. Please try again.",
-        variant: "destructive",
-      });
-      setIsProcessing(false);
-      setStreamingContent("");
+      toast({ title: "Error", description: error.message || "Failed to process research.", variant: "destructive" });
+      setIsProcessing(false); setStreamingContent("");
     }
   };
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() && uploadedFiles.length === 0) return;
-
     const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      type: "user",
-      content: newMessage,
-      files: uploadedFiles.length > 0 ? uploadedFiles : undefined,
-      timestamp: new Date(),
+      id: Date.now().toString(), type: "user", content: newMessage,
+      files: uploadedFiles.length > 0 ? uploadedFiles : undefined, timestamp: new Date(),
     };
-
     setMessages((prev) => [...prev, userMessage]);
     setIsProcessing(true);
+    setOriginalQuery(newMessage); // Set original query for follow-ups if needed for mind map context
 
     try {
-      console.log("Processing follow-up question:", newMessage);
-
-      // Find the last AI response to use as context
       const lastAiMessage = messages.filter((m) => m.type === "ai").pop();
-
       if (lastAiMessage) {
         const contextReport: FinalReport = {
-          content: lastAiMessage.content,
-          sources: lastAiMessage.sources || [],
+          content: lastAiMessage.content, sources: lastAiMessage.sources || [],
           wordCount: lastAiMessage.content.length,
         };
-
         const followUpCallbacks: AIServiceCallbacks = {
-          onThinkingUpdate: (data) => {
-            setCurrentThinkingStreamData((prev) => [...prev, data]);
-          },
-          onProgress: (stage, progress) => {
-            console.log(`Follow-up progress: ${stage} (${progress}%)`);
-          },
+          onThinkingUpdate: (data) => setCurrentThinkingStreamData((prev) => [...prev, data]),
+          onProgress: (stage, progress) => console.log(`Follow-up progress: ${stage} (${progress}%)`),
           onError: (error) => {
             console.error("Follow-up error:", error);
-            toast({
-              title: "Error",
-              description: "Failed to send message. Please try again.",
-              variant: "destructive",
-            });
+            toast({ title: "Error", description: error.message || "Failed to send message.", variant: "destructive" });
             setIsProcessing(false);
           },
           onComplete: (response) => {
             const aiMessage: ChatMessage = {
-              id: (Date.now() + 1).toString(),
-              type: "ai",
-              content: response.finalReport.content,
-              thinkingStreamData: response.thinkingProcess,
-              sources: response.finalReport.sources,
+              id: (Date.now() + 1).toString(), type: "ai", content: response.finalReport.content,
+              thinkingStreamData: response.thinkingProcess, sources: response.finalReport.sources,
               timestamp: new Date(),
             };
-
             setMessages((prev) => [...prev, aiMessage]);
-            setCurrentThinking([]);
-            setCurrentThinkingStreamData([]);
-
-            if (mindMapData && newMessage.length > 10) {
-              const newNodeId = `followup_${Date.now()}`;
-              const newNode = {
-                id: newNodeId,
-                position: { x: Math.random() * 200, y: Math.random() * 200 },
-                data: {
-                  label: newMessage.substring(0, 20) + "...",
-                  type: "sub",
-                  level: 2,
-                  parentId: "center",
-                  expanded: false,
-                  hasChildren: false,
-                },
-              };
-
-              setMindMapData((prev: MindMapData) => ({
-                nodes: [...prev.nodes, newNode],
-                edges: [
-                  ...prev.edges,
-                  {
-                    id: `edge-${newNodeId}`,
-                    source: "center",
-                    target: newNodeId,
-                  },
-                ],
-              }));
+            if (response.mindMap) { // Assuming follow-up can also generate/update mind maps
+                setFullMindMapData(response.mindMap); // Update full map
+                const initialNodes = response.mindMap.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
+                const initialNodeIds = new Set(initialNodes.map(node => node.id));
+                const initialEdges = response.mindMap.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
+                setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
             }
-
-            setIsProcessing(false);
+            setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false);
           },
         };
-
-        await aiService.processFollowUp(
-          newMessage,
-          contextReport,
-          followUpCallbacks
-        );
+        await aiService.processFollowUp(newMessage, contextReport, followUpCallbacks);
       } else {
-        throw new Error("No previous context found for follow-up");
+        // If no prior AI message, treat as a new research query
+        await processResearchQuery(newMessage, uploadedFiles.map(f => f.file), false); // Assuming 'Normal' mode for follow-ups as new queries
       }
-
-      console.log("Follow-up processed successfully");
-    } catch (error) {
-      console.error("Error sending follow-up:", error);
-      toast({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
-        variant: "destructive",
-      });
+    } catch (error: any) {
+      console.error("Error sending message:", error);
+      toast({ title: "Error", description: error.message || "Failed to send message.", variant: "destructive" });
       setIsProcessing(false);
     }
-
-    setNewMessage("");
-    setUploadedFiles([]);
+    setNewMessage(""); setUploadedFiles([]);
   };
 
-  const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const files = event.target.files;
-    if (!files) return;
-
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files; if (!files) return;
     try {
       const fileArray = Array.from(files);
-
-      // Validate file types
-      const unsupportedFiles = fileArray.filter(
-        (file) => !fileProcessingService.isFileTypeSupported(file)
-      );
+      const unsupportedFiles = fileArray.filter((file) => !fileProcessingService.isFileTypeSupported(file));
       if (unsupportedFiles.length > 0) {
-        toast({
-          title: "Unsupported Files",
-          description: `${unsupportedFiles
-            .map((f) => f.name)
-            .join(
-              ", "
-            )} are not supported. Please upload PDF, DOCX, DOC, or TXT files.`,
-          variant: "destructive",
-        });
+        toast({ title: "Unsupported Files", description: `${unsupportedFiles.map((f) => f.name).join(", ")} are not supported.`, variant: "destructive" });
         return;
       }
-
-      // Show processing toast
-      toast({
-        title: "Processing Files",
-        description: `Processing ${fileArray.length} file(s)...`,
-      });
-
-      // Process files using the real file processing service
-      const processedFiles = await fileProcessingService.processFiles(
-        fileArray
-      );
-
-      // Convert to UploadedFile format for UI
-      const uploadedFiles: UploadedFile[] = processedFiles.map((pFile) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        name: pFile.metadata.fileName,
-        content: pFile.content,
-        type: pFile.metadata.fileType,
+      toast({ title: "Processing Files", description: `Processing ${fileArray.length} file(s)...` });
+      const processedFiles = await fileProcessingService.processFiles(fileArray);
+      const uiUploadedFiles: UploadedFile[] = processedFiles.map((pFile) => ({
+        id: Math.random().toString(36).substr(2, 9), name: pFile.metadata.fileName,
+        content: pFile.content, type: pFile.metadata.fileType,
         file: fileArray.find((f) => f.name === pFile.metadata.fileName)!,
-        processed: pFile.success,
-        wordCount: pFile.metadata.wordCount,
-        error: pFile.error,
+        processed: pFile.success, wordCount: pFile.metadata.wordCount, error: pFile.error,
       }));
-
-      setUploadedFiles((prev) => [...prev, ...uploadedFiles]);
-
-      // Show success/error notifications
+      setUploadedFiles((prev) => [...prev, ...uiUploadedFiles]);
       const successfulFiles = processedFiles.filter((f) => f.success);
       const failedFiles = processedFiles.filter((f) => !f.success);
-
-      if (successfulFiles.length > 0) {
-        toast({
-          title: "Files Processed",
-          description: `Successfully processed ${
-            successfulFiles.length
-          } file(s). Total words: ${successfulFiles.reduce(
-            (sum, f) => sum + f.metadata.wordCount,
-            0
-          )}`,
-        });
-      }
-
-      if (failedFiles.length > 0) {
-        toast({
-          title: "Processing Errors",
-          description: `Failed to process ${failedFiles.length} file(s). Check file formats.`,
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
+      if (successfulFiles.length > 0) toast({ title: "Files Processed", description: `Successfully processed ${successfulFiles.length} file(s).` });
+      if (failedFiles.length > 0) toast({ title: "Processing Errors", description: `Failed to process ${failedFiles.length} file(s).`, variant: "destructive" });
+    } catch (error: any) {
       console.error("File upload error:", error);
-      toast({
-        title: "Upload Error",
-        description: "Failed to process uploaded files. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Upload Error", description: error.message || "Failed to process files.", variant: "destructive" });
     }
-
     event.target.value = "";
   };
 
-  const generateMindMap = () => {
-    if (!mindMapData) {
-      toast({
-        title: "No Data",
-        description: "Complete a research query first to generate mind map.",
-        variant: "destructive",
-      });
+  const generateAndShowMindMap = async () => {
+    // This function is now primarily for toggling visibility or initial generation if needed
+    // The mind map data generation is coupled with research completion.
+    if (!fullMindMapData) {
+       const lastAiMessage = messages.filter((m) => m.type === "ai" && m.isAutonomous).pop();
+       if(lastAiMessage && lastAiMessage.content) {
+        setIsProcessing(true);
+        toast({title: "Generating Mind Map", description: "Please wait..."});
+        try {
+            const mindMap = await mindMapService.generateMindMap(lastAiMessage.content, originalQuery, 10);
+            if (mindMap) {
+                setFullMindMapData(mindMap);
+                const initialNodes = mindMap.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
+                const initialNodeIds = new Set(initialNodes.map(node => node.id));
+                const initialEdges = mindMap.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
+                setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+                setShowMindMap(true);
+            } else {
+                 toast({ title: "Mind Map Error", description: "Could not generate mind map data.", variant: "destructive" });
+            }
+        } catch (error: any) {
+            toast({ title: "Mind Map Error", description: error.message || "Failed to generate mind map.", variant: "destructive" });
+        } finally {
+            setIsProcessing(false);
+        }
+       } else {
+         toast({ title: "No Data", description: "Complete a research query first.", variant: "destructive" });
+       }
       return;
     }
     setShowMindMap(true);
@@ -476,32 +424,18 @@ const ChatPage = () => {
 
   return (
     <div className="min-h-screen relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
       <div className="sticky top-0 z-40 bg-slate-800/40 border-b border-slate-700/50 backdrop-blur-sm p-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <h1
-            className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform"
-            onClick={() => navigate("/")}
-          >
-            Novah
-          </h1>
-
+          <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>Novah</h1>
           <div className="flex items-center space-x-4">
-            {mindMapData && !showMindMap && (
-              <Button
-                onClick={generateMindMap}
-                className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white"
-              >
+            {(messages.some(m => m.type === 'ai')) && !showMindMap && ( // Show button if there's an AI message
+              <Button onClick={generateAndShowMindMap} className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white" disabled={isProcessing}>
                 <Map className="h-4 w-4 mr-2" />
-                View Mind Map
+                {fullMindMapData ? "View Mind Map" : "Generate Mind Map"}
               </Button>
             )}
             {showMindMap && (
-              <Button
-                variant="outline"
-                onClick={() => setShowMindMap(false)}
-                className="bg-slate-700/30 border border-slate-600/50 text-white hover:bg-slate-700/50"
-              >
+              <Button variant="outline" onClick={() => setShowMindMap(false)} className="bg-slate-700/30 border border-slate-600/50 text-white hover:bg-slate-700/50">
                 <X className="h-4 w-4 mr-2" />
                 Hide Mind Map
               </Button>
@@ -511,81 +445,41 @@ const ChatPage = () => {
       </div>
 
       <div className="flex h-[calc(100vh-80px)] relative">
-        {/* Chat Area */}
-        <div
-          className={`chat-container ${
-            showMindMap ? "w-1/2" : "w-full"
-          } flex flex-col`}
-        >
-          {/* Messages */}
+        <div className={`chat-container ${showMindMap ? "w-1/2" : "w-full"} flex flex-col`}>
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <div className="max-w-4xl mx-auto space-y-6">
-              {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
-              ))}
-
-              {isProcessing && (
+              {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+              {isProcessing && messages.length > 0 && messages[messages.length-1].type === 'user' && ( // Show thinking only if last message is user and processing
                 <div className="flex justify-start">
                   <div className="max-w-3xl">
                     {isAutonomousMode ? (
-                      <AutonomousThinkingProcess
-                        streamData={currentThinkingStreamData}
-                        isAutonomous={true}
-                        isVisible={true}
-                      />
+                      <AutonomousThinkingProcess streamData={currentThinkingStreamData} isAutonomous={true} isVisible={true} />
                     ) : (
-                      <ThinkingProcess
-                        steps={currentThinking}
-                        isVisible={true}
-                      />
+                      <ThinkingProcess steps={currentThinking} isVisible={true} />
                     )}
-                    {streamingContent && (
-                      <div className="bg-slate-800/50 text-white border border-slate-700/50 backdrop-blur-sm rounded-lg mt-4 p-6">
-                        <StreamingText content={streamingContent} />
-                      </div>
-                    )}
+                    {streamingContent && <div className="bg-slate-800/50 text-white border border-slate-700/50 backdrop-blur-sm rounded-lg mt-4 p-6"><StreamingText content={streamingContent} /></div>}
                   </div>
                 </div>
               )}
-
               <div ref={messagesEndRef} />
             </div>
           </div>
-
-          {/* Chat Input */}
-          <ChatInput
-            message={newMessage}
-            onMessageChange={setNewMessage}
-            onSendMessage={handleSendMessage}
-            onFileUpload={handleFileUpload}
-            uploadedFiles={uploadedFiles}
-            onRemoveFile={(id) =>
-              setUploadedFiles((prev) => prev.filter((f) => f.id !== id))
-            }
-            isProcessing={isProcessing}
-          />
+          <ChatInput message={newMessage} onMessageChange={setNewMessage} onSendMessage={handleSendMessage} onFileUpload={handleFileUpload} uploadedFiles={uploadedFiles} onRemoveFile={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))} isProcessing={isProcessing} />
         </div>
 
-        {/* Mind Map */}
-        {showMindMap && (
+        {showMindMap && displayedMindMapData && (
           <div className="mind-map-container w-1/2 border-l border-slate-700/50">
             <div className="h-full flex flex-col bg-slate-800/50">
               <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
                 <h3 className="text-white font-medium">Research Mind Map</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowMindMap(false)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowMindMap(false)} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></Button>
               </div>
               <div className="flex-1">
                 <MindMap
-                  mindMapData={mindMapData}
-                  onNodeExpand={handleNodeExpand}
-                  isLoading={isProcessing}
+                  mindMapData={displayedMindMapData}
+                  onNodeExpand={handleNodeExpand} // For AI-based expansion
+                  onNodeDoubleClick={handleNodeReveal} // For revealing existing children
+                  isLoading={isProcessing && !displayedMindMapData} // Show loading if processing and no map yet
                 />
               </div>
             </div>
