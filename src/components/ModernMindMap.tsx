@@ -78,7 +78,17 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
         text-white p-3
       `}
     >
-      <div className="font-semibold leading-tight">{data.label}</div>
+      <div
+        className="font-semibold leading-tight"
+        style={{
+          wordBreak: 'break-word',
+          overflowWrap: 'break-word',
+          whiteSpace: 'normal',
+          textAlign: 'center', // Added as per initial instruction, though not explicitly in the final diff
+        }}
+      >
+        {data.label}
+      </div>
       {data.summary && (
         <div className="text-xs opacity-80 mt-1 line-clamp-2 leading-tight">
           {data.summary}
@@ -259,6 +269,7 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <MiniMap
               className="!bg-gray-50 !border !border-gray-200 rounded-lg"
+              style={{ zIndex: 10 }} // Added z-index
               nodeColor={(node) => {
                 switch (node.data.level) {
                   case 1:

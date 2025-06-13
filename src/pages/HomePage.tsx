@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react"; // Import useRef
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +28,7 @@ const HomePage = () => {
   const [autonomousMode] = useState(true); // Always use autonomous mode
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null); // Create a ref for the file input
 
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -213,22 +214,25 @@ const HomePage = () => {
                     </div>
                   </div>
 
-                  <label className="cursor-pointer group">
+                  {/* File input and trigger button */}
+                  <div>
                     <input
                       type="file"
                       multiple
                       accept=".txt,.pdf,.doc,.docx"
                       onChange={handleFileUpload}
                       className="hidden"
+                      ref={fileInputRef} // Assign the ref
                     />
                     <Button
                       variant="outline"
                       className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-cyan-500/50 transition-all duration-300 group-hover:scale-105"
+                      onClick={() => fileInputRef.current?.click()} // Programmatic click
                     >
                       <Upload className="h-4 w-4 mr-2" />
                       Upload Files
                     </Button>
-                  </label>
+                  </div>
                 </div>
 
                 <Button

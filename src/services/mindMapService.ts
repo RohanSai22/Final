@@ -3,7 +3,7 @@
 // Advanced mind map generation with React Flow integration
 // =====================================================================================
 
-import { google } from "@ai-sdk/google";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
 import dagre from "dagre";
 
@@ -64,7 +64,7 @@ export interface HierarchicalNode {
 }
 
 class MindMapService {
-  private apiKey: string | null = null;
+  private googleProviderFactory: ReturnType<typeof createGoogleGenerativeAI> | null = null;
   private lastRequestTime: number = 0;
   private readonly MIN_DELAY = 1200; // 1.2 seconds between requests
 
@@ -74,12 +74,13 @@ class MindMapService {
 
   private initializeAI() {
     try {
-      this.apiKey = (import.meta.env as any).VITE_GOOGLE_AI_API_KEY;
-      if (!this.apiKey) {
+      const apiKey = (import.meta.env as any).VITE_GOOGLE_AI_API_KEY;
+      if (!apiKey) {
         console.error("Google AI API key not found for Mind Map Service. Mind map generation will likely fail.");
-        throw new Error("Google AI API key not found for Mind Map Service. Ensure VITE_GOOGLE_AI_API_KEY is set in your environment variables.");
+        // No longer throwing an error here, SDK will handle it
       }
-      console.log("🗺️ Mind Map Service initialized");
+      this.googleProviderFactory = createGoogleGenerativeAI({ apiKey: apiKey || undefined });
+      console.log("🗺️ Mind Map Service initialized with custom Google provider");
     } catch (error) {
       console.error("Failed to initialize Mind Map Service:", error);
     }
@@ -107,13 +108,11 @@ class MindMapService {
   async generateMindMap(
     content: string,
     userQuery: string,
-    maxLevels: number = 4
+    maxLevels: number = 4,
+    layoutDirection: "TB" | "LR" = "TB" // Add parameter with default
   ): Promise<MindMapData> {
     try {
-      if (!this.apiKey) {
-        return this.createFallbackMindMap(userQuery);
-      }
-
+      // API key check removed, factory initialization handles this
       const chunks = await this.semanticChunking(content);
       const atomicTrees = await Promise.all(
         chunks
@@ -129,8 +128,9 @@ class MindMapService {
       }
 
       const masterTree = await this.mergeTrees(filteredAtomicTrees, userQuery);
-      const mindMapData = this.convertToReactFlowFormat(masterTree, maxLevels);
-      return this.applyDagreLayout(mindMapData);
+      const mindMapDataWithNodesAndEdges = this.convertToReactFlowFormat(masterTree, maxLevels);
+      // Pass the layoutDirection to applyDagreLayout
+      return this.applyDagreLayout(mindMapDataWithNodesAndEdges, layoutDirection);
 
     } catch (error) {
       console.error("Mind map generation error:", error);
@@ -145,8 +145,12 @@ class MindMapService {
 
 Text:
 ${content.substring(0, 8000)}`;
+      if (!this.googleProviderFactory) {
+        console.error("Google provider factory not initialized in semanticChunking.");
+        return this.fallbackChunking(content);
+      }
       const result = await generateText({
-        model: google("gemini-2.0-flash-lite"),
+        model: this.googleProviderFactory("gemini-2.0-flash-lite"),
         prompt, maxTokens: 1500, temperature: 0.3,
       });
       try {
@@ -182,8 +186,12 @@ For EVERY parent-child connection, you MUST define the connection by including a
 The output format MUST be a single JSON object with the following recursive structure: { "label": "Node Title", "relationship": "...", "children": [ ... ] }. The root node's relationship can be 'is the central topic of'.
 Text chunk:
 ${chunk.substring(0, 1500)}`;
+      if (!this.googleProviderFactory) {
+        console.error("Google provider factory not initialized in generateAtomicTree.");
+        return this.createSimpleTree(chunk);
+      }
       const result = await generateText({
-        model: google("gemini-2.0-flash-lite"),
+        model: this.googleProviderFactory("gemini-2.0-flash-lite"),
         prompt, maxTokens: 1200, temperature: 0.4,
       });
       try {
@@ -274,8 +282,16 @@ Partial Tree:
 ${JSON.stringify(partialTreeForPrompt, null, 2)}"`;
 
     try {
+      if (!this.googleProviderFactory) {
+        console.error("Google provider factory not initialized in findAnchorAndGraft.");
+        // Fallback logic: directly graft without AI assistance
+        if (!masterTree.children) masterTree.children = [];
+        masterTree.children.push(partialTree);
+        this.reLevelChildren(partialTree, masterTree.level + 1);
+        return masterTree;
+      }
       const result = await generateText({
-        model: google("gemini-2.0-flash-lite"),
+        model: this.googleProviderFactory("gemini-2.0-flash-lite"),
         prompt, maxTokens: 200, temperature: 0.3,
       });
       const path = result.text.trim();
@@ -345,16 +361,20 @@ ${JSON.stringify(partialTreeForPrompt, null, 2)}"`;
         const truncatedRelationship = node.relationship.length > MAX_RELATIONSHIP_LENGTH
                                       ? node.relationship.substring(0, MAX_RELATIONSHIP_LENGTH) + '...'
                                       : node.relationship;
-        const edge: MindMapEdge = {
-          id: `edge-${parentId}-${node.id}`,
-          source: parentId,
-          target: node.id,
-          label: truncatedRelationship,
-          animated: node.level <= 2,
-          style: this.getEdgeStyle(node.level),
-          labelStyle: this.getEdgeLabelStyle(node.level),
-        };
-        edges.push(edge);
+        if (parentId && typeof parentId === 'string' && node.id && typeof node.id === 'string') {
+          const edge: MindMapEdge = {
+            id: `edge-${parentId}-${node.id}`,
+            source: parentId,
+            target: node.id,
+            label: truncatedRelationship,
+            animated: node.level <= 2,
+            style: this.getEdgeStyle(node.level),
+            labelStyle: this.getEdgeLabelStyle(node.level),
+          };
+          edges.push(edge);
+        } else {
+          console.warn(`Skipping edge creation: parentId ('${parentId}') or nodeId ('${node.id}') is invalid for node with label '${node.label}'.`);
+        }
       }
       node.children.forEach((child) => traverse(child, node.id));
     };
@@ -404,12 +424,22 @@ ${JSON.stringify(partialTreeForPrompt, null, 2)}"`;
     return { fill: "#666", fontWeight: level <= 1 ? "600" : "500", fontSize: level <= 1 ? "12px" : "11px" };
   }
 
-  private applyDagreLayout(mindMapData: MindMapData): MindMapData {
+  private applyDagreLayout(mindMapData: MindMapData, direction: "TB" | "LR" = "TB"): MindMapData {
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
-    dagreGraph.setGraph({ rankdir: "TB", nodesep: 100, ranksep: 150, marginx: 50, marginy: 50 });
+    // Use the passed direction for rankdir
+    dagreGraph.setGraph({ rankdir: direction, nodesep: 120, ranksep: 180, marginx: 50, marginy: 50 });
     mindMapData.nodes.forEach((node) => {
-      const width = Math.max(node.data.label.length * 8 + 40, 120); const height = 60; // Approximate width
+      const level = node.data.level;
+      let height = 60; // Default height
+      if (level === 0) height = 96;
+      else if (level === 1) height = 80;
+      else if (level === 2) height = 64;
+      else if (level === 3) height = 56;
+      else height = 48; // For levels 4+
+
+      // Adjusted width calculation
+      const width = Math.max(node.data.label.length * 7 + 30, 100);
       dagreGraph.setNode(node.id, { width, height });
     });
     mindMapData.edges.forEach((edge) => dagreGraph.setEdge(edge.source, edge.target));
@@ -423,14 +453,20 @@ ${JSON.stringify(partialTreeForPrompt, null, 2)}"`;
 
   async expandNode(nodeId: string, currentMindMap: MindMapData, context: string): Promise<{ newNodes: MindMapNode[]; newEdges: MindMapEdge[] }> {
     try {
-      if (!this.apiKey) return { newNodes: [], newEdges: [] };
+      // API key check removed
       const targetNode = currentMindMap.nodes.find((n) => n.id === nodeId);
       if (!targetNode) return { newNodes: [], newEdges: [] };
+
+      if (!this.googleProviderFactory) {
+        console.error("Google provider factory not initialized in expandNode.");
+        return { newNodes: [], newEdges: [] };
+      }
+
       await this.enforceRateLimit();
       const prompt = `Generate 2-4 sub-concepts for the mind map node "${targetNode.data.label}" in the context of "${context}".
 Return a JSON array of objects with this structure:
 [ { "label": "Sub-concept name (max 40 chars)", "relationship": "relationship to parent", "nodeType": "concept|detail|example" } ]`;
-      const result = await generateText({ model: google("gemini-2.0-flash-lite"), prompt, maxTokens: 800, temperature: 0.6 });
+      const result = await generateText({ model: this.googleProviderFactory("gemini-2.0-flash-lite"), prompt, maxTokens: 800, temperature: 0.6 });
       try {
         const expansions = JSON.parse(result.text); const newNodes: MindMapNode[] = []; const newEdges: MindMapEdge[] = [];
         expansions.slice(0, 4).forEach((expansion: any, index: number) => {

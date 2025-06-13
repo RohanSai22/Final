@@ -86,6 +86,7 @@ const ChatPage = () => {
     ThinkingStreamData[]
   >([]);
   const [showMindMap, setShowMindMap] = useState(false);
+  const [layoutDirection, setLayoutDirection] = useState<"TB" | "LR">("TB"); // New state for layout direction
 
   // Renamed state for full mind map data
   const [fullMindMapData, setFullMindMapData] = useState<MindMapData | null>(null);
@@ -298,7 +299,7 @@ const ChatPage = () => {
 
               // Generate mind map after final answer
               if (mindMapService && typeof mindMapService.generateMindMap === 'function') {
-                const mindMap = await mindMapService.generateMindMap(report.content, query, 10);
+                const mindMap = await mindMapService.generateMindMap(report.content, query, 10, layoutDirection);
                 if (mindMap) processAndSetMindMapData(mindMap);
               } else {
                 console.error("mindMapService or generateMindMap method is not available");
@@ -479,7 +480,8 @@ const ChatPage = () => {
         toast({title: "Generating Mind Map", description: "Please wait..."});
         try {
           if (mindMapService && typeof mindMapService.generateMindMap === 'function') {
-            const mindMap = await mindMapService.generateMindMap(lastAiMessage.content, originalQuery, 10);
+            // Pass layoutDirection to generateMindMap
+            const mindMap = await mindMapService.generateMindMap(lastAiMessage.content, originalQuery, 10, layoutDirection);
             if (mindMap) {
                 setFullMindMapData(mindMap);
                 const initialNodes = mindMap.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
@@ -514,6 +516,35 @@ const ChatPage = () => {
   const closeThinkingProcessDialog = () => {
     setViewingThinkingForMessageId(null);
     setRetrievedThinkingStream(null);
+  };
+
+  const handleToggleLayout = async () => {
+    const newDirection = layoutDirection === "TB" ? "LR" : "TB";
+    setLayoutDirection(newDirection);
+    if (fullMindMapData) {
+      setIsProcessing(true);
+      toast({ title: "Re-laying out Mind Map", description: `Switching to ${newDirection === "TB" ? "Vertical" : "Horizontal"} view...`});
+      try {
+        // Use the last AI message content for re-generating the mind map with the new layout
+        const lastAiMessage = messages.filter(m => m.type === 'ai' && m.content).pop();
+        if (lastAiMessage && lastAiMessage.content && originalQuery) {
+            const mindMap = await mindMapService.generateMindMap(lastAiMessage.content, originalQuery, 10, newDirection);
+            if (mindMap) {
+                setFullMindMapData(mindMap); // Update full map
+                const initialNodes = mindMap.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
+                const initialNodeIds = new Set(initialNodes.map(node => node.id));
+                const initialEdges = mindMap.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
+                setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+            }
+        } else {
+            toast({ title: "Error", description: "Cannot re-layout without AI content or original query.", variant: "destructive" });
+        }
+      } catch (error: any) {
+        toast({ title: "Layout Error", description: error.message || "Failed to re-layout mind map.", variant: "destructive" });
+      } finally {
+        setIsProcessing(false);
+      }
+    }
   };
 
   return (
@@ -573,7 +604,12 @@ const ChatPage = () => {
             <div className="h-full flex flex-col bg-slate-800/50">
               <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
                 <h3 className="text-white font-medium">Research Mind Map</h3>
-                <Button variant="ghost" size="sm" onClick={() => setShowMindMap(false)} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></Button>
+                <div className="flex items-center">
+                  <Button onClick={handleToggleLayout} variant="outline" size="sm" className="mr-2 bg-slate-700/30 border-slate-600/50 text-xs text-white hover:bg-slate-700/50">
+                    {layoutDirection === "TB" ? "Horizontal" : "Vertical"} View
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setShowMindMap(false)} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></Button>
+                </div>
               </div>
               <div className="flex-1">
                 <MindMap
