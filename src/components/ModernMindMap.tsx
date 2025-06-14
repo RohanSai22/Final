@@ -13,6 +13,9 @@ import {
   MiniMap,
   useReactFlow,
   ReactFlowProvider,
+  Handle,
+  Position,
+  NodeProps,
 } from "@xyflow/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,7 +37,7 @@ interface MindMapComponentProps {
 }
 
 // Custom node component for the modern mind map
-const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
+const CustomNode = ({ data, selected, isConnectable }: NodeProps<any>) => { // Use NodeProps and add isConnectable
   const getLevelColor = (level: number) => {
     switch (level) {
       case 0:
@@ -90,6 +93,18 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
       >
         Level {data.level}
       </Badge>
+      <Handle
+        type="target"
+        position={Position.Top}
+        isConnectable={isConnectable}
+        style={{ background: '#555', width: '10px', height: '10px' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        isConnectable={isConnectable}
+        style={{ background: '#555', width: '10px', height: '10px' }}
+      />
     </div>
   );
 };
@@ -207,12 +222,12 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
   }
 
   const containerClass = isFullscreen
-    ? "fixed inset-0 z-50 bg-white"
-    : "rounded-3xl h-96";
+    ? "fixed inset-0 z-50 bg-white flex flex-col" // Added flex flex-col for fullscreen
+    : "rounded-3xl h-full flex flex-col"; // Use h-full and flex flex-col for normal mode
 
   return (
     <Card className={containerClass}>
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-2 shrink-0"> {/* Prevent header from shrinking */}
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <Network className="w-5 h-5 text-blue-600" />
@@ -247,8 +262,8 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-0 flex-1">
-        <div className={isFullscreen ? "h-full" : "h-80"}>
+      <CardContent className="p-0 flex-1 min-h-0"> {/* Added min-h-0 to ensure flex-1 works correctly in nested flex */}
+        <div className="h-full w-full"> {/* Changed to h-full w-full */}
           <ReactFlow
             nodes={nodes}
             edges={edges}

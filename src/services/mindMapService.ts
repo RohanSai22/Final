@@ -347,6 +347,17 @@ class MindMapService {
     rootEntityId: string | null,
     userQuery: string
   ): HierarchicalNode {
+    // Validate masterGraph relationships
+    const entityIds = new Set(masterGraph.entities.map(e => e.id));
+    masterGraph.relationships.forEach(rel => {
+      if (!entityIds.has(rel.sourceId!)) {
+        console.warn(`MindMapService: _buildHierarchicalTreeFromMasterGraph - Relationship sourceId "${rel.sourceId}" (label: "${rel.label}") does not exist in masterGraph entities.`);
+      }
+      if (!entityIds.has(rel.targetId!)) {
+        console.warn(`MindMapService: _buildHierarchicalTreeFromMasterGraph - Relationship targetId "${rel.targetId}" (label: "${rel.label}") does not exist in masterGraph entities.`);
+      }
+    });
+
     console.log(
       "MindMapService: _buildHierarchicalTreeFromMasterGraph - Starting with rootEntityId:",
       rootEntityId
@@ -480,6 +491,75 @@ class MindMapService {
   // The full content of the existing methods from the previous step should be here.
   // For brevity, I'm only showing the method signatures of the ones I'm not directly changing in this diff.
   // The overwrite will take care of merging this new logic with the existing class body.
+
+  private _cleanAndParseJson(rawJsonString: string): any {
+    let jsonString = rawJsonString;
+
+    // Attempt to extract from markdown code blocks
+    const markdownJsonRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/m;
+    let match = jsonString.match(markdownJsonRegex);
+    if (match && match[1]) {
+      jsonString = match[1].trim();
+    } else {
+      // Fallback for cases where markdown extraction is not perfect (e.g. missing backticks)
+      if (jsonString.startsWith("```") && jsonString.endsWith("```")) {
+        jsonString = jsonString.substring(3, jsonString.length - 3).trim();
+      } else if (jsonString.startsWith("`") && jsonString.endsWith("`")) {
+        jsonString = jsonString.substring(1, jsonString.length - 1).trim();
+      }
+    }
+
+    // Trim leading/trailing non-JSON characters (more aggressively)
+    // Find the first '{' and last '}'
+    const firstBrace = jsonString.indexOf("{");
+    const lastBrace = jsonString.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+    } else {
+      // If no object structure, try for array structure
+      const firstBracket = jsonString.indexOf("[");
+      const lastBracket = jsonString.lastIndexOf("]");
+      if (firstBracket !== -1 && lastBracket > firstBracket) {
+        jsonString = jsonString.substring(firstBracket, lastBracket + 1);
+      } else {
+        // If neither, it's unlikely to be parsable JSON
+        throw new Error("No valid JSON structure (object or array) found.");
+      }
+    }
+
+    // Attempt to fix unterminated strings (best effort)
+    // This regex looks for patterns like "key": "value not closed
+    // and tries to add a closing quote. It's imperfect.
+    jsonString = jsonString.replace(
+      /(":\s*")(.*?)(?<!\\)"(\s*[,}])/g,
+      (m, p1, p2, p3) => {
+        if (p2.includes('"') && !p2.endsWith('\\"')) { // check if there is an unescaped quote inside
+          // if it has unescaped quotes, it's too complex to fix with simple regex
+          return m;
+        }
+        return `${p1}${p2.replace(/"/g, '\\"')}${p3}`; // escape inner quotes if any (simple cases)
+      }
+    );
+    jsonString = jsonString.replace(
+      /("description":\s*")([^"]*?)(\s*"\s*[,}])/g,
+      (match, start, content, end) => {
+        // If content ends with a backslash, it might be an escape for a quote that's missing
+        if (content.endsWith("\\")) {
+          return `${start}${content}"${end}`;
+        }
+        // Basic attempt to add a quote if it seems like a string value was cut off before a comma or brace
+        // This is risky and might corrupt valid JSON. A more robust solution is needed.
+        // For now, we'll be conservative.
+        return match; // Return original match if no simple fix is obvious
+      }
+    );
+
+    // Remove trailing commas from objects
+    jsonString = jsonString.replace(/,\s*([}\]])/g, "$1");
+
+    // Attempt to parse
+    return JSON.parse(jsonString);
+  }
 
   private _intelligentChunking(
     text: string,
@@ -664,16 +744,16 @@ Output Format: Respond with ONLY a single, raw JSON object matching this exact s
 Instructions:
 1.  Entities:
     *   'name': MUST be a highly concise keyphrase, 2-3 words MAXIMUM. This is the node title.
-    *   'description': MUST be a single sentence summarizing the entity's role/meaning *within this specific chunk*.
+    *   'description': MUST be a single sentence summarizing the entity's role/meaning *within this specific chunk*. Ensure all string values, especially multi-sentence 'description' fields, are properly JSON escaped (e.g., newline characters as \\n, quotes within strings as \\").
     *   'type': Categorize the entity (e.g., Concept, Person, Organization, Location, Event, Other).
     *   'id': Use a temporary unique ID for each entity within this chunk (e.g., "temp_id_1", "temp_id_2"). Ensure these IDs are unique *within this specific JSON response*.
 2.  Relationships:
     *   'sourceName' and 'targetName' MUST EXACTLY match the 'name' of an entity defined in your "entities" list for this chunk.
     *   'label': MUST be a directional action phrase, 1-3 words MAXIMUM, describing how the source connects to the target (e.g., "influences", "is part of", "developed by").
 3.  Accuracy: All information must be derived *solely* from the provided Text Chunk. Do not infer or use external knowledge.
-4.  JSON Validity: Ensure the output is a valid JSON object with no comments or extraneous text. Your response MUST be ONLY the raw JSON object itself.
+4.  JSON Validity: The final output MUST be a single, minified, valid JSON object without any surrounding text or markdown. Ensure all strings are properly escaped. Do not include any comments (e.g., // or /* */) within the JSON output.
 `;
-    let jsonString = "";
+    let rawResponseText = "";
     try {
       await this.enforceRateLimit();
       const result = await generateText({
@@ -682,32 +762,8 @@ Instructions:
         temperature: 0.3,
         maxTokens: 1500,
       });
-      jsonString = result.text.trim();
-      const markdownJsonRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/m;
-      let match = jsonString.match(markdownJsonRegex);
-      if (match && match[1]) {
-        jsonString = match[1].trim();
-      } else {
-        if (jsonString.startsWith("```") && jsonString.endsWith("```"))
-          jsonString = jsonString.substring(3, jsonString.length - 3).trim();
-        else if (jsonString.startsWith("`") && jsonString.endsWith("`"))
-          jsonString = jsonString.substring(1, jsonString.length - 1).trim();
-      }
-      const firstBracket = jsonString.indexOf("{");
-      const lastBracket = jsonString.lastIndexOf("}");
-      if (
-        firstBracket === -1 ||
-        lastBracket === -1 ||
-        lastBracket < firstBracket
-      ) {
-        console.error(
-          "MindMapService: _extractAtomicKnowledge - No valid JSON object structure. Cleaned attempt:",
-          jsonString.substring(0, 200)
-        );
-        return { entities: [], relationships: [] };
-      }
-      jsonString = jsonString.substring(firstBracket, lastBracket + 1);
-      const parsedResult = JSON.parse(jsonString);
+      rawResponseText = result.text;
+      const parsedResult = this._cleanAndParseJson(rawResponseText);
       if (
         !parsedResult ||
         !Array.isArray(parsedResult.entities) ||
@@ -722,8 +778,8 @@ Instructions:
       return parsedResult as AtomicGraph;
     } catch (error) {
       console.error(
-        "MindMapService: _extractAtomicKnowledge - Error. Cleaned string attempt:",
-        jsonString.substring(0, 200),
+        "MindMapService: _extractAtomicKnowledge - Error parsing JSON. Original response text (approx 200 chars):",
+        rawResponseText.substring(0, 200),
         "Error:",
         error
       );
@@ -804,12 +860,12 @@ Instructions for Updating MasterGraph:
         *   Convert sourceName/targetName from NewAtomicGraph to sourceId/targetId using the MasterGraph entity IDs.
         *   If an IDENTICAL relationship (same sourceId, targetId, and a very similar or identical semantic meaning of label) already exists in MasterGraph.relationships, DO NOT add it.
         *   Otherwise, add the new relationship to MasterGraph.relationships, ensuring its sourceId/targetId point to entities in the updated MasterGraph. The relationship 'label' (1-3 words) should be preserved from NewAtomicGraph.
-3.  Output Format: Respond with ONLY a single, raw JSON object representing the updated MasterGraph. The structure MUST be: { "entities": [ { "id": "master_entity_...", "name": "...", "description": "...", "type": "..." } ], "relationships": [ { "sourceId": "master_entity_...", "targetId": "master_entity_...", "label": "..." } ] }.
+3.  Output Format: The outputted 'MasterGraph' MUST be a single, minified, valid JSON object. Pay special attention to synthesizing 'description' fields; they must be valid JSON strings with proper escaping. Do not include any text or markdown before or after the JSON object. Do not include any comments (e.g., // or /* */) within the JSON output. The structure MUST be: { "entities": [ { "id": "master_entity_...", "name": "...", "description": "...", "type": "..." } ], "relationships": [ { "sourceId": "master_entity_...", "targetId": "master_entity_...", "label": "..." } ] }.
     *   Note: In the output, relationships MUST use 'sourceId' and 'targetId' that refer to the 'id' field of entities in your returned "entities" list. All entity IDs in the final graph MUST follow the "master_entity_X" format.
 
 Respond with the updated MasterGraph JSON only.
 `;
-    let jsonString = "";
+    let rawResponseText = "";
     try {
       await this.enforceRateLimit();
       // Increased maxTokens as the combined graph can be large.
@@ -819,32 +875,8 @@ Respond with the updated MasterGraph JSON only.
         temperature: 0.2,
         maxTokens: 3800,
       });
-      jsonString = result.text.trim();
-      const markdownJsonRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/m;
-      let match = jsonString.match(markdownJsonRegex);
-      if (match && match[1]) {
-        jsonString = match[1].trim();
-      } else {
-        if (jsonString.startsWith("```") && jsonString.endsWith("```"))
-          jsonString = jsonString.substring(3, jsonString.length - 3).trim();
-        else if (jsonString.startsWith("`") && jsonString.endsWith("`"))
-          jsonString = jsonString.substring(1, jsonString.length - 1).trim();
-      }
-      const firstBracket = jsonString.indexOf("{");
-      const lastBracket = jsonString.lastIndexOf("}");
-      if (
-        firstBracket === -1 ||
-        lastBracket === -1 ||
-        lastBracket < firstBracket
-      ) {
-        console.error(
-          "MindMapService: _mergeAtomicGraphs - No valid JSON object structure. Cleaned attempt:",
-          jsonString.substring(0, 200)
-        );
-        return masterGraph;
-      }
-      jsonString = jsonString.substring(firstBracket, lastBracket + 1);
-      const parsedResult = JSON.parse(jsonString);
+      rawResponseText = result.text;
+      const parsedResult = this._cleanAndParseJson(rawResponseText);
       if (
         !parsedResult ||
         !Array.isArray(parsedResult.entities) ||
@@ -859,8 +891,8 @@ Respond with the updated MasterGraph JSON only.
       return parsedResult as AtomicGraph;
     } catch (error) {
       console.error(
-        "MindMapService: _mergeAtomicGraphs - Error. Cleaned string attempt:",
-        jsonString.substring(0, 200),
+        "MindMapService: _mergeAtomicGraphs - Error parsing JSON. Original response text (approx 200 chars):",
+        rawResponseText.substring(0, 200),
         "Error:",
         error
       );
@@ -1086,25 +1118,56 @@ Respond with the updated MasterGraph JSON only.
     );
     const MAX_NODES = 150;
     let finalNodes = nodes;
-    let finalEdges = validEdges;
+    let finalEdges = validEdges; // Start with edges that passed initial filtering based on nodes created during traversal
+
     if (nodes.length > MAX_NODES) {
       const nodesToRemove = new Set<string>();
-      const sortedNodesByLevel = nodes
+      // Sort by level, then by number of connections (less connected, higher level nodes are pruned first)
+      const nodeConnectionCounts = new Map<string, number>();
+      nodes.forEach(n => nodeConnectionCounts.set(n.id, 0));
+      validEdges.forEach(edge => {
+        nodeConnectionCounts.set(edge.source, (nodeConnectionCounts.get(edge.source) || 0) + 1);
+        nodeConnectionCounts.set(edge.target, (nodeConnectionCounts.get(edge.target) || 0) + 1);
+      });
+
+      const sortedNodesByLevelAndConnections = nodes
         .slice()
-        .sort((a, b) => b.data.level - a.data.level);
+        .sort((a, b) => {
+          if (b.data.level !== a.data.level) {
+            return b.data.level - a.data.level;
+          }
+          return (nodeConnectionCounts.get(a.id) || 0) - (nodeConnectionCounts.get(b.id) || 0);
+        });
+
       let numNodesToKeep = nodes.length;
-      for (const node of sortedNodesByLevel) {
-        if (numNodesToKeep <= MAX_NODES || node.data.level === 0) continue;
+      for (const node of sortedNodesByLevelAndConnections) {
+        if (numNodesToKeep <= MAX_NODES || node.data.level === 0) continue; // Always keep root
         nodesToRemove.add(node.id);
         numNodesToKeep--;
       }
       finalNodes = nodes.filter((node) => !nodesToRemove.has(node.id));
+      // Filter edges again based on the final set of nodes
       finalEdges = validEdges.filter(
         (edge) =>
           !nodesToRemove.has(edge.source) && !nodesToRemove.has(edge.target)
       );
     }
-    return { nodes: finalNodes, edges: finalEdges };
+
+    // Final validation of edges against finalNodes
+    const finalNodeIds = new Set(finalNodes.map(n => n.id));
+    const validatedFinalEdges = finalEdges.filter(edge => {
+      const sourceExists = finalNodeIds.has(edge.source);
+      const targetExists = finalNodeIds.has(edge.target);
+      if (!sourceExists) {
+        console.warn(`MindMapService: convertToReactFlowFormat - Edge "${edge.id}" (label: "${edge.label}") references non-existent source node ID "${edge.source}" in finalNodes.`);
+      }
+      if (!targetExists) {
+        console.warn(`MindMapService: convertToReactFlowFormat - Edge "${edge.id}" (label: "${edge.label}") references non-existent target node ID "${edge.target}" in finalNodes.`);
+      }
+      return sourceExists && targetExists;
+    });
+
+    return { nodes: finalNodes, edges: validatedFinalEdges };
   }
 
   private getNodeStyle(level: number, nodeType?: string) {
