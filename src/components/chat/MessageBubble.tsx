@@ -61,10 +61,23 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
     <div className="flex justify-start">
       <Card className="max-w-3xl bg-slate-800/50 text-white border border-slate-700/50 backdrop-blur-sm p-6 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300">
         <div className="space-y-4">
-          {/* Display for older 'thinking' steps if present (and not autonomous, to avoid double display if both exist) */}
-          {message.thinking && !message.isAutonomous && (
-            <ThinkingProcess steps={message.thinking as any} isVisible={true} />
-          )}
+          {/* Relocated Thinking Process Display - Renders before main content */}
+          {(message.thinkingStreamData && message.thinkingStreamData.length > 0) ? (
+            <div className="mb-3 p-3 bg-slate-700/20 rounded-md"> {/* Added wrapper and margin */}
+              <AutonomousThinkingProcess
+                streamData={message.thinkingStreamData}
+                isAutonomous={message.isAutonomous ?? true} // Default to true if thinkingStreamData exists
+                isVisible={true}
+              />
+            </div>
+          ) : (message.thinkingSteps && message.thinkingSteps.length > 0) ? (
+            <div className="mb-3 p-3 bg-slate-700/20 rounded-md"> {/* Added wrapper and margin */}
+              <ThinkingProcess
+                steps={message.thinkingSteps}
+                isVisible={true}
+              />
+            </div>
+          ) : null}
 
           {/* Main content display */}
           {message.isAutonomous ? (
@@ -111,28 +124,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
             </>
           )}
 
-          {/* Collapsible Thinking Process for thinkingStreamData */}
-          {message.thinkingStreamData && message.thinkingStreamData.length > 0 && (
-            <Collapsible className="mt-4 pt-4 border-t border-slate-700/50">
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" size="sm" className="text-xs text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-500 w-full flex items-center justify-between">
-                  <span>
-                    <Brain className="h-3.5 w-3.5 mr-2 inline-block" />
-                    Show Thinking Process
-                  </span>
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-3 px-2 py-1 bg-slate-700/20 rounded-md">
-                <AutonomousThinkingProcess
-                  streamData={message.thinkingStreamData}
-                  // isAutonomous might not be strictly necessary for AutonomousThinkingProcess if it just renders streamData
-                  isAutonomous={message.isAutonomous || false}
-                  isVisible={true}
-                />
-              </CollapsibleContent>
-            </Collapsible>
-          )}
+          {/* Collapsible section for thinkingStreamData is now removed as it's displayed above content */}
         </div>
       </Card>
     </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Map, X } from "lucide-react"; // Removed FilePlus as New Chat button is in sidebar
+import { Map, X, Menu, XSquare as LucideXSquare } from "lucide-react"; // Added Menu, XSquare as LucideX (X is already used)
 // Dialog related imports are removed as the dialog for thinking process is removed
 import MindMap from "@/components/ModernMindMap";
 import { toast } from "@/hooks/use-toast";
@@ -65,6 +65,7 @@ const ChatPage = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string>(uuidv4());
   const [currentSessionName, setCurrentSessionName] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // State for sidebar
 
   const saveChatSession = () => {
     if (!currentSessionId) {
@@ -130,8 +131,18 @@ const ChatPage = () => {
       }
     }
 
-    if (location.state?.query) { // Check if location.state and query exist
-        console.log("ChatPage: New navigation state present. Initializing as a new session.");
+    if (location.state?.loadSessionId) {
+        console.log("ChatPage: loadSessionId found in location state:", location.state.loadSessionId);
+        handleSelectChat(location.state.loadSessionId);
+        // Clear the state to prevent re-triggering on refresh or remount
+        navigate(location.pathname, { replace: true, state: {} });
+    } else if (location.state?.startNewSession) {
+        console.log("ChatPage: startNewSession found in location state.");
+        handleNewChat(); // This function already sets up a new session
+        // Clear the state
+        navigate(location.pathname, { replace: true, state: {} });
+    } else if (location.state?.query) { // Check if location.state and query exist
+        console.log("ChatPage: New navigation state present (query). Initializing as a new session.");
         const newId = uuidv4();
         setCurrentSessionId(newId);
 
@@ -162,7 +173,7 @@ const ChatPage = () => {
         setFullMindMapData(null);
         setDisplayedMindMapData(null);
     }
-  }, [location.state]);
+  }, [location.state, navigate]); // Added navigate to dependency array
 
 
   useEffect(() => {
@@ -213,10 +224,6 @@ const ChatPage = () => {
                 sources: report.sources, timestamp: new Date(), isAutonomous: true,
               };
               setMessages((prev) => [...prev, aiMessage]);
-              if (mindMapService) {
-                const mindMap = await mindMapService.generateMindMap(report.content, originalQuery || query, 10);
-                if (mindMap) processAndSetMindMapData(mindMap);
-              }
               // No more localStorage for thinking_process
               setCurrentThinkingStreamData([]); setIsProcessing(false);
             },
@@ -236,7 +243,6 @@ const ChatPage = () => {
               timestamp: new Date(), isAutonomous: false,
             };
             setMessages((prev) => [...prev, aiMessage]);
-            if (response.mindMap) processAndSetMindMapData(response.mindMap);
             // No more localStorage for thinking_process
             setCurrentThinkingStreamData([]); setIsProcessing(false);
           },
@@ -248,6 +254,9 @@ const ChatPage = () => {
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() && uploadedFiles.length === 0) return;
+
+    setShowMindMap(false);
+
     const currentQuery = newMessage;
     const currentUiFiles = [...uploadedFiles];
 
@@ -297,7 +306,6 @@ const ChatPage = () => {
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, aiMessage]);
-            if (response.mindMap) processAndSetMindMapData(response.mindMap);
             // No more localStorage for thinking_process
             setCurrentThinkingStreamData([]); setIsProcessing(false);
           },
@@ -396,11 +404,53 @@ const ChatPage = () => {
   // Removed closeThinkingProcessDialog as the dialog and its state vars are gone
   const generateAndShowMindMap = async () => {
     if (isProcessing || !messages.length) return;
-    setIsProcessing(true);
-    const lastMessageContent = messages.find(m => m.type === 'ai')?.content || messages[messages.length-1].content; // Prefer AI message
+
+    const aiMessages = messages.filter(m => m.type === 'ai');
+    const lastAiMessage = aiMessages[aiMessages.length - 1];
+
+    if (!lastAiMessage || !lastAiMessage.content) {
+        toast({ title: "Mind Map Generation", description: "No AI message found to generate a mind map from.", variant: "default" });
+        setIsProcessing(false); // Release processing state if we bail early
+        return;
+    }
+    setIsProcessing(true); // Set processing only if we proceed
+
+    const lastAiContent = lastAiMessage.content;
+
+    // Determine the topic name: use originalQuery, then first user message, then a default.
+    const firstUserMessage = messages.find(m => m.type === 'user');
+    const topicName = originalQuery || (firstUserMessage?.content.substring(0,100)) || "Chat Topic";
+
+    let filesContextString = "";
+    if (uploadedFiles.length > 0) {
+      let fileContentsArray: string[] = [];
+      for (const uiFile of uploadedFiles) {
+        let fileContentSegment = `File: ${uiFile.name}\n`;
+        if (uiFile.content) {
+          fileContentSegment += `${uiFile.content}\n\n`;
+          fileContentsArray.push(fileContentSegment);
+        } else if (uiFile.file) {
+          try {
+            const content = await fileProcessingService.readFileAsText(uiFile.file);
+            fileContentSegment += `${content}\n\n`;
+            fileContentsArray.push(fileContentSegment);
+          } catch (err) {
+            console.warn(`Could not read file ${uiFile.name} for mind map generation:`, err);
+            // Optionally add a placeholder or skip this file
+            fileContentsArray.push(`File: ${uiFile.name}\n[Content not available or error reading file]\n\n`);
+          }
+        }
+      }
+      if (fileContentsArray.length > 0) {
+        filesContextString = "Associated File Context:\n" + fileContentsArray.join('');
+      }
+    }
+
+    const fullInputText = `User Query Context: ${topicName}\n\n${filesContextString}AI Answer to Map:\n${lastAiContent}`;
+
     try {
-        const mindMap = await mindMapService.generateMindMap(lastMessageContent, originalQuery || messages[0]?.content || "Chat Topic", 10);
-        if (mindMap) {
+        const mindMap = await mindMapService.generateMindMap(fullInputText, topicName, 10); // Max levels can be adjusted
+        if (mindMap && mindMap.nodes.length > 0) { // Check if mindMap is not null and has nodes
             setFullMindMapData(mindMap);
             const initialNodes = mindMap.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
             const initialNodeIds = new Set(initialNodes.map(node => node.id));
@@ -408,10 +458,11 @@ const ChatPage = () => {
             setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
             setShowMindMap(true);
         } else {
-          toast({title: "Mind Map Generation", description: "Could not generate a mind map for this content.", variant: "default"});
+          toast({title: "Mind Map Generation", description: "Could not generate a mind map for this content, or the generated map was empty.", variant: "default"});
         }
-    } catch (err) {
-        toast({title: "Mind Map Error", description: (err as Error).message, variant: "destructive"});
+    } catch (err: any) { // Explicitly type err as any or unknown then check
+        console.error("Mind Map Generation Error in ChatPage:", err);
+        toast({title: "Mind Map Error", description: err.message || "An unknown error occurred during mind map generation.", variant: "destructive"});
     } finally {
         setIsProcessing(false);
     }
@@ -429,7 +480,12 @@ const ChatPage = () => {
 
   return (
     <div className="flex h-screen overflow-hidden relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="w-72 flex-shrink-0 bg-slate-850 h-full overflow-y-auto custom-scrollbar">
+      {/* Sidebar */}
+      <div
+        className={`transition-all duration-300 ease-in-out ${
+          isSidebarOpen ? "w-72" : "w-0"
+        } overflow-hidden flex-shrink-0 bg-slate-850 h-full border-r border-slate-700/50 custom-scrollbar`}
+      >
         <ChatHistorySidebar
           chatHistory={chatHistory}
           currentSessionId={currentSessionId}
@@ -442,9 +498,14 @@ const ChatPage = () => {
       <div className="flex-1 flex flex-col h-screen overflow-y-hidden">
         <div className="sticky top-0 z-30 bg-slate-800/60 border-b border-slate-700/50 backdrop-blur-md p-4">
           <div className="flex items-center justify-between max-w-7xl mx-auto">
-            <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>
-              Novah {currentSessionName && <span className="text-sm text-slate-400 ml-2 font-normal">({currentSessionName})</span>}
-            </h1>
+            <div className="flex items-center"> {/* Group toggle and title */}
+              <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white hover:bg-slate-700 mr-2">
+                {isSidebarOpen ? <LucideXSquare className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              </Button>
+              <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>
+                Novah {currentSessionName && <span className="text-sm text-slate-400 ml-2 font-normal">({currentSessionName})</span>}
+              </h1>
+            </div>
             <div className="flex items-center space-x-2">
               {(messages.some(m => m.type === 'ai')) && !showMindMap && (
                 <Button onClick={generateAndShowMindMap} className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white" disabled={isProcessing} size="sm">
@@ -520,6 +581,7 @@ const ChatPage = () => {
           )}
         </div>
         {/* Dialog for thinking process removed */}
+      </div>
       </div>
     </div>
   );

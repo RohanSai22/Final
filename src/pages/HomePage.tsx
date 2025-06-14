@@ -1,12 +1,14 @@
-import React, { useState, useRef } from "react"; // Added useRef
+import React, { useState, useRef, useEffect } from "react"; // Added useEffect
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Upload, ArrowRight, Sparkles } from "lucide-react";
+import { Upload, ArrowRight, Sparkles, Menu, X as LucideX } from "lucide-react"; // Added Menu, X
 import { toast } from "@/hooks/use-toast";
 import SuggestionCards from "@/components/home/SuggestionCards";
+import ChatHistorySidebar from "@/components/chat/ChatHistorySidebar"; // Added
+import { ChatSession } from "@/types/common"; // Added
 import FileUploadArea from "@/components/home/FileUploadArea";
 import { fileProcessingService } from "@/services/fileProcessingService";
 
@@ -29,6 +31,38 @@ const HomePage = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null); // Created fileInputRef
+
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default to open
+  const CHAT_HISTORY_KEY = 'novah_chat_history'; // Define key
+
+  useEffect(() => {
+    try {
+      const historyRaw = localStorage.getItem(CHAT_HISTORY_KEY);
+      if (historyRaw) {
+        const loadedSessions = JSON.parse(historyRaw).filter((s: ChatSession | null) => s && typeof s.id !== 'undefined');
+        setChatHistory(loadedSessions);
+      }
+    } catch (error) {
+      console.error("HomePage: Error parsing chat history from localStorage:", error);
+      setChatHistory([]); // Initialize with empty array on error
+    }
+  }, []);
+
+  const handleSelectChat = (sessionId: string) => {
+    navigate('/chat', { state: { loadSessionId: sessionId } });
+  };
+
+  const handleNewChatFromSidebar = () => {
+    navigate('/chat', { state: { startNewSession: true } });
+  };
+
+  const handleDeleteChat = (sessionId: string) => {
+    const updatedHistory = chatHistory.filter(s => s.id !== sessionId);
+    setChatHistory(updatedHistory);
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updatedHistory));
+    toast({ title: "Chat Deleted", description: "Session removed from history." });
+  };
 
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -157,9 +191,9 @@ const HomePage = () => {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Animated background particles */}
-      <div className="absolute inset-0">
+    <div className="h-screen flex flex-col overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      {/* Animated background particles (can remain for the whole page if desired, or be constrained) */}
+      <div className="absolute inset-0 pointer-events-none"> {/* Added pointer-events-none */}
         {[...Array(50)].map((_, i) => (
           <div
             key={i}
@@ -174,10 +208,34 @@ const HomePage = () => {
         ))}
       </div>
 
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-8">
-        <div className="w-full max-w-6xl space-y-16">
-          {/* Hero Section */}
-          <div className="text-center space-y-8">
+      {/* Top bar for sidebar toggle - minimal example */}
+      <div className="relative z-20 p-2 bg-slate-900/50 backdrop-blur-sm">
+        <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-white hover:bg-slate-700">
+          {isSidebarOpen ? <LucideX className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+        </Button>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden relative z-10"> {/* Main container for sidebar + content */}
+        {/* Sidebar */}
+        <div
+          className={`transition-all duration-300 ease-in-out ${
+            isSidebarOpen ? "w-72" : "w-0"
+          } overflow-hidden flex-shrink-0 h-full bg-slate-850`} // bg-slate-850 from ChatPage sidebar parent
+        >
+          <ChatHistorySidebar
+            chatHistory={chatHistory}
+            currentSessionId={null} // No active session on home page
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChatFromSidebar}
+            onDeleteChat={handleDeleteChat}
+          />
+        </div>
+
+        {/* Original Page Content - now takes remaining space and scrolls */}
+        <div className="flex-1 overflow-y-auto p-8"> {/* Ensure this part scrolls */}
+          <div className="w-full max-w-6xl mx-auto space-y-16"> {/* Added mx-auto for centering */}
+            {/* Hero Section */}
+            <div className="text-center space-y-8">
             <div className="relative">
               <h1 className="text-7xl md:text-8xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent animate-glow mb-6">
                 Novah
@@ -276,6 +334,7 @@ const HomePage = () => {
         </div>
       </div>
     </div>
+  </div>
   );
 };
 

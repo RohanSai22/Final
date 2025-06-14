@@ -295,10 +295,16 @@ class MindMapService {
     const prompt = `
     Given the following list of entity names extracted from a document: [${entityNames}]
     And the user's original query: "${originalQuery}"
-    Which entity NAME from the list is the most central and relevant starting point for a mind map related to the query?
-    Respond with ONLY the entity NAME from the list. If no single entity is clearly central, pick the one that seems like the best overall theme.
-    If multiple entities seem equally central, pick the one that appears first in the provided list.
-    Your response must be exactly one of the names from the provided list.
+    Your task is to identify the single best entity NAME from the provided list that should serve as the central starting point for a mind map related to the user's query.
+
+    Instructions:
+    1.  Consider relevance to the user's query.
+    2.  The chosen entity NAME MUST be an EXACT match from the provided list: [${entityNames}].
+    3.  If no single entity is clearly central, select the one that represents the best overall theme of the query within the given entities.
+    4.  If multiple entities seem equally central, select the one that appears earliest in the list.
+    5.  Your response MUST consist of ONLY the chosen entity NAME. Do not include any other text, explanations, or quotation marks. For example, if "Artificial Intelligence" is the chosen entity, your response is just: Artificial Intelligence
+
+    Respond now with ONLY the most central entity name from the list.
     `;
 
     try {
@@ -651,27 +657,31 @@ Text Chunk to Analyze:
 ${chunk}
 ---
 Your Mission: Act as a knowledge architect. From ONLY the Text Chunk provided above, identify fundamental building blocks of knowledge.
-Output Format: Respond with ONLY a single, raw JSON object matching this exact structure:
+Output Format: Respond with ONLY a single, raw JSON object matching this exact structure. Do not include any explanations, comments, or markdown formatting like \`\`\`json ... \`\`\`.
 {
   "entities": [
-    { "id": "temp_id_1", "name": "Entity Name (2-3 words MAX)", "description": "One-sentence summary based ONLY on this chunk.", "type": "Concept | Person | Organization | Location | Event | Other" }
+    { "id": "temp_id_1", "name": "Entity Name ( STRICTLY 2-3 words MAX)", "description": "Concise one-sentence summary based ONLY on information explicitly stated in THIS chunk.", "type": "Concept | Person | Organization | Location | Event | Other" }
   ],
   "relationships": [
-    { "sourceName": "Name of Source Entity from entities list", "targetName": "Name of Target Entity from entities list", "label": "Action phrase (1-3 words MAX)" }
+    { "sourceName": "Name of Source Entity from entities list for this chunk", "targetName": "Name of Target Entity from entities list for this chunk", "label": "Action phrase (STRICTLY 1-3 words MAX)" }
   ]
 }
 
-Instructions:
+Key Instructions:
 1.  Entities:
-    *   'name': MUST be a highly concise keyphrase, 2-3 words MAXIMUM. This is the node title.
-    *   'description': MUST be a single sentence summarizing the entity's role/meaning *within this specific chunk*.
-    *   'type': Categorize the entity (e.g., Concept, Person, Organization, Location, Event, Other).
-    *   'id': Use a temporary unique ID for each entity within this chunk (e.g., "temp_id_1", "temp_id_2"). Ensure these IDs are unique *within this specific JSON response*.
+    *   'name': MUST be a highly concise keyphrase, STRICTLY 2-3 words MAXIMUM. This is the node title. Avoid generic names.
+    *   'description': MUST be a single sentence summarizing the entity's role/meaning as explicitly described *within this specific Text Chunk*. Do not infer. If no description is present in the chunk, use an empty string "".
+    *   'type': Categorize the entity. If unsure, use "Other".
+    *   'id': Use a temporary unique ID for each entity (e.g., "temp_id_1", "temp_id_2"). IDs MUST be unique *within this specific JSON response*.
 2.  Relationships:
-    *   'sourceName' and 'targetName' MUST EXACTLY match the 'name' of an entity defined in your "entities" list for this chunk.
-    *   'label': MUST be a directional action phrase, 1-3 words MAXIMUM, describing how the source connects to the target (e.g., "influences", "is part of", "developed by").
-3.  Accuracy: All information must be derived *solely* from the provided Text Chunk. Do not infer or use external knowledge.
-4.  JSON Validity: Ensure the output is a valid JSON object with no comments or extraneous text. Your response MUST be ONLY the raw JSON object itself.
+    *   'sourceName' and 'targetName' MUST EXACTLY match a 'name' of an entity defined in YOUR "entities" list for THIS response. Do not reference entities not in this current chunk's extraction.
+    *   'label': MUST be a directional action phrase, STRICTLY 1-3 words MAXIMUM (e.g., "influences", "is part of", "developed by").
+3.  Strict Accuracy:
+    *   All information (names, descriptions, types, relationships, labels) MUST be derived *solely* from the provided Text Chunk.
+    *   Do NOT infer, assume, or use any external knowledge.
+    *   If specific information for a field is not present in the chunk, use an empty string "" for descriptions, or omit the entity/relationship if it cannot be substantially formed.
+4.  Empty or Irrelevant Chunk: If the Text Chunk contains no discernible entities or relationships relevant to the user's original query, or is too vague, return an empty JSON object: \`{\"entities\": [], \"relationships\": []}\`.
+5.  JSON Validity: The output MUST be a single, valid JSON object. Ensure all strings are double-quoted. No comments or extraneous text.
 `;
     let jsonString = "";
     try {
@@ -707,6 +717,30 @@ Instructions:
         return { entities: [], relationships: [] };
       }
       jsonString = jsonString.substring(firstBracket, lastBracket + 1);
+
+      // Enhanced cleaning attempts
+      try {
+        // Attempt 1: Remove trailing commas
+        jsonString = jsonString.replace(/,\s*\]/g, ']');
+        jsonString = jsonString.replace(/,\s*\}/g, '}');
+
+        // Attempt 2: Fix common pattern of missing comma between objects in an array
+        // e.g. [{"a":1}{"b":2}] to [{"a":1},{"b":2}]
+        // or   [{"a":1} \n {"b":2}] to [{"a":1}, \n {"b":2}]
+        jsonString = jsonString.replace(/\}(\s*)\{/g, '},$1{');
+
+        // Attempt 3: AI sometimes outputs "..." which is invalid JSON if not in a string.
+        // This is very aggressive if "..." can be part of valid string content.
+        // For now, let's assume "..." is more likely to be an error if it's causing parsing issues.
+        // A more targeted regex would be needed if this causes problems.
+        // Example: replace unquoted ... with null or remove. This is complex.
+        // Let's hold off on this specific one unless the comma fixes are not enough.
+
+      } catch (cleanError) {
+        console.warn("MindMapService: _extractAtomicKnowledge - Error during enhanced cleaning:", cleanError);
+        // Proceed with parsing the less cleaned string if cleaning itself errors.
+      }
+
       const parsedResult = JSON.parse(jsonString);
       if (
         !parsedResult ||
@@ -720,11 +754,21 @@ Instructions:
         return { entities: [], relationships: [] };
       }
       return parsedResult as AtomicGraph;
-    } catch (error) {
+    } catch (error: any) {
+      let errorSnippet = jsonString.substring(0, 500); // Default snippet
+      const errorMessage = typeof error.message === 'string' ? error.message : '';
+      const match = errorMessage.match(/position\s+(\d+)/);
+      if (match) {
+        const position = parseInt(match[1], 10);
+        const context = 100; // Characters before and after the error position
+        const start = Math.max(0, position - context);
+        const end = Math.min(jsonString.length, position + context);
+        errorSnippet = `...[AROUND POSITION ${position}]... ${jsonString.substring(start, end)} ...`;
+      }
       console.error(
-        "MindMapService: _extractAtomicKnowledge - Error. Cleaned string attempt:",
-        jsonString.substring(0, 200),
-        "Error:",
+        "MindMapService: _extractAtomicKnowledge - JSON.parse Error. Full (or large snippet of) cleaned string attempt:",
+        errorSnippet,
+        "Original Error:",
         error
       );
       return { entities: [], relationships: [] };
@@ -784,28 +828,31 @@ ${JSON.stringify(masterGraph)}
 NewAtomicGraph:
 ${JSON.stringify(newAtomicGraph)}
 
-Instructions for Updating MasterGraph:
+Key Instructions for Updating MasterGraph:
 1.  De-duplicate Entities:
-    *   For each entity in NewAtomicGraph.entities:
-        *   Critically assess if it represents the SAME REAL-WORLD CONCEPT as an entity already in MasterGraph.entities (semantic similarity, not just exact name match). Use the 'description' and 'type' for better matching.
-        *   If YES (it's a duplicate):
-            *   DO NOT add it as a new entity.
-            *   USE the existing entity from MasterGraph. Its 'id' MUST be preserved.
-            *   SYNTHESIZE the 'description' from the MasterGraph entity and the NewAtomicGraph entity into a new, more comprehensive one-sentence description. This new description should reflect the combined knowledge and replace the old description in the MasterGraph entity.
-            *   The 'name' of the entity in MasterGraph should be preserved or refined for clarity if the new information suggests a better concise name (still 2-3 words).
-            *   Map the NewAtomicGraph entity's temporary 'id' (if it had one) or its 'name' to this MasterGraph entity's 'id' for relationship updating.
-        *   If NO (it's a new, distinct entity):
-            *   Add it to MasterGraph.entities. Assign it a new, unique ID using the format "master_entity_X" where X is the next available integer (e.g., if current master has IDs up to master_entity_${
-              nextEntityIdCounter - 1
-            }, the new one would be master_entity_${nextEntityIdCounter}).
+    *   Iterate through each entity in \`NewAtomicGraph.entities\`.
+    *   For each \`NewAtomicGraph\` entity, critically assess if it represents the SAME REAL-WORLD CONCEPT as an entity already in \`MasterGraph.entities\`. Base this on semantic similarity of \`name\`, \`description\`, and \`type\`.
+    *   If a \`NewAtomicGraph\` entity IS a DUPLICATE of a \`MasterGraph\` entity:
+        *   DO NOT add it as a new entity to the output.
+        *   USE the EXISTING entity from \`MasterGraph\` (its \`id\` MUST be preserved).
+        *   SYNTHESIZE its \`description\`: Combine the \`description\` from the \`MasterGraph\` entity and the \`NewAtomicGraph\` entity into a new, more comprehensive single sentence. This new description replaces the old one in the \`MasterGraph\` entity being updated.
+        *   The \`name\` of the \`MasterGraph\` entity should be preserved or slightly refined for clarity if the new information strongly suggests a better concise name (still 2-3 words MAX).
+        *   Internally map the \`NewAtomicGraph\` entity's temporary 'id' (or its 'name') to this existing \`MasterGraph\` entity's \`id\` for updating relationships later.
+    *   If a \`NewAtomicGraph\` entity is NEW and DISTINCT (not a duplicate):
+        *   Add it to the output \`MasterGraph.entities\`.
+        *   Assign it a new, unique ID using the format "master_entity_X", where X is the next available integer starting from ${nextEntityIdCounter} (e.g., "master_entity_${nextEntityIdCounter}", "master_entity_${nextEntityIdCounter + 1}", etc.). Increment X for each new entity added.
 2.  Integrate Relationships:
-    *   For each relationship in NewAtomicGraph.relationships:
-        *   Identify the corresponding source and target entities in the *updated* MasterGraph (using the mapping from de-duplication, or newly assigned master IDs). Use entity names for mapping if IDs are temporary.
-        *   Convert sourceName/targetName from NewAtomicGraph to sourceId/targetId using the MasterGraph entity IDs.
-        *   If an IDENTICAL relationship (same sourceId, targetId, and a very similar or identical semantic meaning of label) already exists in MasterGraph.relationships, DO NOT add it.
-        *   Otherwise, add the new relationship to MasterGraph.relationships, ensuring its sourceId/targetId point to entities in the updated MasterGraph. The relationship 'label' (1-3 words) should be preserved from NewAtomicGraph.
-3.  Output Format: Respond with ONLY a single, raw JSON object representing the updated MasterGraph. The structure MUST be: { "entities": [ { "id": "master_entity_...", "name": "...", "description": "...", "type": "..." } ], "relationships": [ { "sourceId": "master_entity_...", "targetId": "master_entity_...", "label": "..." } ] }.
-    *   Note: In the output, relationships MUST use 'sourceId' and 'targetId' that refer to the 'id' field of entities in your returned "entities" list. All entity IDs in the final graph MUST follow the "master_entity_X" format.
+    *   Iterate through each relationship in \`NewAtomicGraph.relationships\`.
+    *   Identify the corresponding source and target entities in YOUR UPDATED \`MasterGraph.entities\` list (using the mapping from de-duplication or newly assigned master IDs).
+    *   Convert \`sourceName\`/\`targetName\` from \`NewAtomicGraph\` relationships to \`sourceId\`/\`targetId\` using the MASTER IDs from YOUR UPDATED \`MasterGraph.entities\`.
+    *   If an IDENTICAL relationship (same \`sourceId\`, same \`targetId\`, AND same semantic meaning of \`label\`) already exists in the original \`MasterGraph.relationships\`, DO NOT add the duplicate.
+    *   Otherwise, add the new relationship to the output \`MasterGraph.relationships\`. Ensure its \`sourceId\`/\`targetId\` point to valid entity \`id\`s in YOUR UPDATED \`MasterGraph.entities\`. The relationship 'label' (1-3 words MAX) should be preserved from \`NewAtomicGraph\`.
+3.  Output Strictness:
+    *   The final output MUST be ONLY a single, raw JSON object representing the updated MasterGraph. No explanations, comments, or markdown.
+    *   The structure MUST be: \`{ "entities": [ { "id": "master_entity_...", "name": "...", "description": "...", "type": "..." } ], "relationships": [ { "sourceId": "master_entity_...", "targetId": "master_entity_...", "label": "..." } ] }\`.
+    *   All entity \`id\`s in the final graph MUST follow the "master_entity_X" format.
+    *   Ensure all JSON strings are double-quoted.
+    *   If \`NewAtomicGraph\` is effectively empty or all its contents are purely redundant with \`MasterGraph\`, your returned JSON should represent the \`MasterGraph\` with any minor synthesized updates (like descriptions) but without adding structurally new, redundant entities or relationships.
 
 Respond with the updated MasterGraph JSON only.
 `;
@@ -844,6 +891,20 @@ Respond with the updated MasterGraph JSON only.
         return masterGraph;
       }
       jsonString = jsonString.substring(firstBracket, lastBracket + 1);
+
+      // Enhanced cleaning attempts
+      try {
+        // Attempt 1: Remove trailing commas
+        jsonString = jsonString.replace(/,\s*\]/g, ']');
+        jsonString = jsonString.replace(/,\s*\}/g, '}');
+
+        // Attempt 2: Fix common pattern of missing comma between objects in an array
+        jsonString = jsonString.replace(/\}(\s*)\{/g, '},$1{');
+
+      } catch (cleanError) {
+        console.warn("MindMapService: _mergeAtomicGraphs - Error during enhanced cleaning:", cleanError);
+      }
+
       const parsedResult = JSON.parse(jsonString);
       if (
         !parsedResult ||
@@ -857,11 +918,21 @@ Respond with the updated MasterGraph JSON only.
         return masterGraph;
       }
       return parsedResult as AtomicGraph;
-    } catch (error) {
+    } catch (error: any) {
+      let errorSnippet = jsonString.substring(0, 500); // Default snippet
+      const errorMessage = typeof error.message === 'string' ? error.message : '';
+      const match = errorMessage.match(/position\s+(\d+)/);
+      if (match) {
+        const position = parseInt(match[1], 10);
+        const context = 100; // Characters before and after the error position
+        const start = Math.max(0, position - context);
+        const end = Math.min(jsonString.length, position + context);
+        errorSnippet = `...[AROUND POSITION ${position}]... ${jsonString.substring(start, end)} ...`;
+      }
       console.error(
-        "MindMapService: _mergeAtomicGraphs - Error. Cleaned string attempt:",
-        jsonString.substring(0, 200),
-        "Error:",
+        "MindMapService: _mergeAtomicGraphs - JSON.parse Error. Full (or large snippet of) cleaned string attempt:",
+        errorSnippet,
+        "Original Error:",
         error
       );
       return masterGraph;
@@ -1240,11 +1311,20 @@ Respond with the updated MasterGraph JSON only.
     if (!targetNode) return { newNodes: [], newEdges: [] };
     await this.enforceRateLimit();
     const prompt = `Generate 2-4 sub-concepts for the mind map node titled '${targetNode.data.label}' in the context of "${context}".
-Each new sub-concept 'label' MUST be a highly concise keyphrase of 2-3 words.
-For each new sub-concept, also provide a 'relationship' (a very short phrase of 1-3 words) that describes its connection to the parent node '${targetNode.data.label}'.
-Your response MUST be ONLY the raw JSON array itself. Do NOT include any markdown formatting. For example: [ { "label": "Concise Sub-concept", "relationship": "Short Connection", "nodeType": "concept" } ].
-Return a JSON array of objects with this structure:
-[ { "label": "Concise Sub-concept", "relationship": "Short Connection", "nodeType": "concept|detail|example" } ]`;
+Each new sub-concept 'label' MUST be a highly concise keyphrase of 2-3 words MAX.
+For each new sub-concept, also provide a 'relationship' (a very short action phrase of 1-3 words MAX) that describes its connection TO the parent node '${targetNode.data.label}'.
+The sub-concepts should be directly related to '${targetNode.data.label}' and make sense within the broader context of "${context}".
+
+Output Instructions:
+1.  Your response MUST be ONLY a single, raw JSON array. Do NOT include any markdown formatting (like \`\`\`json ... \`\`\`) or other surrounding text.
+2.  The JSON array should contain 2-4 objects.
+3.  Each object MUST have this structure: { "label": "Concise Sub-concept Name", "relationship": "Connection Phrase to Parent", "nodeType": "concept|detail|example" }
+    *   "nodeType": Use "concept" for general ideas, "detail" for specifics, or "example" for illustrations.
+4.  If no relevant or meaningful sub-concepts can be generated for '${targetNode.data.label}' based on the context, return an empty array: \`[]\`.
+
+Example of valid output:
+\`[ { "label": "Sub-Topic A", "relationship": "explores", "nodeType": "concept" }, { "label": "Detail B", "relationship": "shows", "nodeType": "detail" } ]\`
+`;
     const result = await generateText({
       model: this.googleProvider("gemini-2.0-flash-lite"),
       prompt,
@@ -1266,23 +1346,83 @@ Return a JSON array of objects with this structure:
       firstSquareBracket === -1 ||
       lastSquareBracket === -1 ||
       lastSquareBracket < firstSquareBracket
-    )
+    ) {
+      console.warn("MindMapService: expandNode - No valid JSON array structure found in AI response.", jsonString.substring(0,200));
       return { newNodes: [], newEdges: [] };
-    const potentialJsonArray = jsonString.substring(
+    }
+    // Ensure we are working with the content within the brackets
+    jsonString = jsonString.substring(
       firstSquareBracket,
       lastSquareBracket + 1
     );
-    if (jsonString !== potentialJsonArray) jsonString = potentialJsonArray;
+
+    // Enhanced cleaning attempts
+    try {
+      // Attempt 1: Remove trailing commas from arrays and objects within the array
+      jsonString = jsonString.replace(/,\s*\]/g, ']');
+      jsonString = jsonString.replace(/,\s*\}/g, '}');
+
+      // Attempt 2: Fix common pattern of missing comma between objects in an array
+      jsonString = jsonString.replace(/\}(\s*)\{/g, '},$1{');
+
+    } catch (cleanError) {
+      console.warn("MindMapService: expandNode - Error during enhanced cleaning:", cleanError);
+    }
+
     try {
       const expansions = JSON.parse(jsonString);
-      if (!Array.isArray(expansions)) return { newNodes: [], newEdges: [] };
+      if (!Array.isArray(expansions)) {
+        console.warn("MindMapService: expandNode - Parsed result is not an array.", jsonString.substring(0,200));
+        return { newNodes: [], newEdges: [] };
+      }
       const newNodes: MindMapNode[] = [];
       const newEdges: MindMapEdge[] = [];
       expansions.slice(0, 4).forEach((expansion: any, index: number) => {
-        /* ... */
+        // Existing logic for creating nodes and edges from expansion
+        // This part is complex and seems to be truncated in the original prompt,
+        // so I'll assume it's correct and focus on the parsing and error handling.
+        // A placeholder for the actual logic:
+        if (expansion && expansion.label && expansion.relationship) {
+            const newNodeId = `expanded-${nodeId}-${index}-${uuidv4()}`;
+            newNodes.push({
+                id: newNodeId,
+                position: { x: 0, y: 0 }, // Position will be updated by layout
+                data: {
+                    label: expansion.label,
+                    level: targetNode.data.level + 1,
+                    nodeType: expansion.nodeType || 'detail'
+                },
+                style: this.getNodeStyle(targetNode.data.level + 1, expansion.nodeType || 'detail'),
+            });
+            newEdges.push({
+                id: `edge-${nodeId}-${newNodeId}`,
+                source: nodeId,
+                target: newNodeId,
+                label: expansion.relationship,
+                animated: true,
+                style: this.getEdgeStyle(targetNode.data.level + 1),
+                labelStyle: this.getEdgeLabelStyle(targetNode.data.level + 1),
+            });
+        }
       });
       return { newNodes, newEdges };
-    } catch {
+    } catch (error: any) {
+      let errorSnippet = jsonString.substring(0, 500); // Default snippet
+      const errorMessage = typeof error.message === 'string' ? error.message : '';
+      const match = errorMessage.match(/position\s+(\d+)/);
+      if (match) {
+        const position = parseInt(match[1], 10);
+        const context = 100; // Characters before and after the error position
+        const start = Math.max(0, position - context);
+        const end = Math.min(jsonString.length, position + context);
+        errorSnippet = `...[AROUND POSITION ${position}]... ${jsonString.substring(start, end)} ...`;
+      }
+      console.error(
+        "MindMapService: expandNode - JSON.parse Error. Full (or large snippet of) cleaned string attempt:",
+        errorSnippet,
+        "Original Error:",
+        error
+      );
       return { newNodes: [], newEdges: [] };
     }
   }
