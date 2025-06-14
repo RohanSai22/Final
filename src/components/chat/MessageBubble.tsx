@@ -103,7 +103,7 @@ const MessageBubble = ({ message, hasThinkingData, onViewThinking }: MessageBubb
             />
           ) : (
             <>
-              <div className="prose prose-invert max-w-none">
+              <div className="prose prose-invert max-w-none ai-response-content" style={{ width: '100%', overflowWrap: 'break-word' }}> {/* Added class and inline styles */}
                 <StreamingText content={message.content} />
               </div>{" "}
               {message.sources && (

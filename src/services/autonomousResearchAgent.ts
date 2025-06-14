@@ -69,21 +69,25 @@ class AutonomousResearchAgent {
   private initializeAI() {
     try {
       this.apiKey = (import.meta.env as any).VITE_GOOGLE_AI_API_KEY;
-      if (!this.apiKey) {
-        console.warn("Google AI API key not found in environment variables");
-        return;
+      if (this.apiKey) {
+        console.log("Google AI API key loaded successfully.");
+        // Create custom Google provider with API key
+        this.googleProvider = createGoogleGenerativeAI({
+          apiKey: this.apiKey,
+        });
+        console.log(
+          "Google AI provider initialized successfully with gemini-2.0-flash-lite."
+        );
+        console.log(
+          "🤖 Autonomous Research Agent initialized with gemini-2.0-flash-lite"
+        );
+      } else {
+        console.error("Google AI API key not found in environment variables. VITE_GOOGLE_AI_API_KEY is not set.");
+        this.googleProvider = null; // Ensure provider is null if key is missing
       }
-
-      // Create custom Google provider with API key
-      this.googleProvider = createGoogleGenerativeAI({
-        apiKey: this.apiKey,
-      });
-
-      console.log(
-        "🤖 Autonomous Research Agent initialized with gemini-2.0-flash-lite"
-      );
     } catch (error) {
       console.error("Failed to initialize Autonomous Research Agent:", error);
+      this.googleProvider = null; // Ensure provider is null on error
     }
   }
 
@@ -286,6 +290,10 @@ class AutonomousResearchAgent {
     chunk: string,
     index: number
   ): Promise<string> {
+    if (!this.googleProvider) {
+      console.error("Google AI provider not initialized. Cannot interrogate chunk.");
+      throw new Error("Google AI provider not initialized.");
+    }
     try {
       await this.enforceRateLimit();
 
@@ -318,6 +326,10 @@ ${chunk}`;
     researchMode: "Normal" | "Deep",
     callbacks: StreamingCallback
   ): Promise<void> {
+    if (!this.googleProvider) {
+      console.error("Google AI provider not initialized. Cannot synthesize file results.");
+      throw new Error("Google AI provider not initialized.");
+    }
     try {
       await this.enforceRateLimit();
 
@@ -326,13 +338,15 @@ ${chunk}`;
       const synthesisPrompt = `Synthesize these partial answers, all derived from a single source document, into one cohesive and comprehensive answer to the user's original question: '${userQuery}'.
 
 Your response MUST be approximately ${wordLimit} words and should be well-structured and definitive. Aim for a word count between ${wordLimit} and ${wordLimit + (researchMode === "Deep" ? 200 : 100)}.
+Important: Synthesize these partial answers into a cohesive answer to the user's query. Do not describe the process of synthesis or mention that the information comes from a document. Present the information directly.
 
 Partial Answers:
 ${results.join("\n\n---\n\n")}`;
       const result = await generateText({
         model: this.googleProvider("gemini-2.0-flash-lite"),
         prompt: synthesisPrompt,
-        maxTokens: Math.round(wordLimit * 1.5),
+        // Adjusted maxTokens: if wordLimit is 1200, 1.5*1200 = 1800. New: 2500. If 400, 1.5*400=600. New: 1000.
+        maxTokens: researchMode === "Deep" ? 2500 : 1000,
         temperature: 0.7,
       });
 
@@ -431,6 +445,10 @@ ${results.join("\n\n---\n\n")}`;
     fileContext: string | undefined,
     callbacks: StreamingCallback
   ): Promise<string[]> {
+    if (!this.googleProvider) {
+      console.error("Google AI provider not initialized. Cannot generate search queries.");
+      throw new Error("Google AI provider not initialized.");
+    }
     try {
       await this.enforceRateLimit();
 
@@ -487,13 +505,18 @@ Return only the queries, one per line, without numbering or additional text.`;
     fileContext: string | undefined,
     callbacks: StreamingCallback
   ): Promise<{ sources: Source[]; learnings: string[] }> {
+    if (!this.googleProvider) {
+      console.error("Google AI provider not initialized. Cannot perform web search.");
+      throw new Error("Google AI provider not initialized.");
+    }
     try {
       await this.enforceRateLimit();
 
       const sources: Source[] = [];
       const learnings: string[] = [];
 
-      let systemPrompt = `You are a research assistant. Provide comprehensive, well-sourced information about the query. Include specific facts, recent developments, and authoritative perspectives. Your response should be based on the information found through web searches.`;
+      let systemPrompt = `You are a research assistant. Provide comprehensive, well-sourced information about the query. Include specific facts, recent developments, and authoritative perspectives. Your response should be based on the information found through web searches.
+Important: Your response should directly answer the query based on the search results. Do not mention or describe your own tools, capabilities, or internal processes (e.g., do not say 'I will use the web search tool' or 'Based on my search results...'). Focus solely on delivering the information requested by the user.`;
 
       if (fileContext) {
         systemPrompt += ` Additional context from user files to consider: ${fileContext.substring(
@@ -509,7 +532,7 @@ Return only the queries, one per line, without numbering or additional text.`;
         }),
         system: systemPrompt,
         prompt: query,
-        maxTokens: 1500, // Keep or adjust as needed
+        maxTokens: 2500, // Increased from 1500
         temperature: 0.7,
       });
 
@@ -611,6 +634,10 @@ Return only the queries, one per line, without numbering or additional text.`;
     sourceCount: number,
     callbacks: StreamingCallback
   ): Promise<boolean> {
+    if (!this.googleProvider) {
+      console.error("Google AI provider not initialized. Cannot perform reflection.");
+      throw new Error("Google AI provider not initialized.");
+    }
     try {
       await this.enforceRateLimit();
 
@@ -671,6 +698,10 @@ If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries t
     researchMode: "Normal" | "Deep",
     callbacks: StreamingCallback
   ): Promise<void> {
+    if (!this.googleProvider) {
+      console.error("Google AI provider not initialized. Cannot generate final report.");
+      throw new Error("Google AI provider not initialized.");
+    }
     try {
       await this.enforceRateLimit();
 
@@ -680,12 +711,24 @@ If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries t
         timestamp: Date.now(),
       });
 
-      const wordLimit = researchMode === "Deep" ? 1200 : 400;
-      const upperWordLimit = researchMode === "Deep" ? 1400 : 500;
+      // Adjusted word limits and maxTokens for better completeness
+      const wordLimit = researchMode === "Deep" ? 1800 : 600;
+      const upperWordLimit = researchMode === "Deep" ? 2200 : 800;
+      const maxTokens = researchMode === "Deep" ? 4000 : 2000;
+      // Note: maxTokens for generation + prompt tokens should not exceed the model's total token limit (e.g., 8192 for Gemini Flash).
 
       const reportPrompt = `Synthesize all the following learnings into a single, cohesive final report answering '${userQuery}'.
 
 Your response MUST be approximately ${wordLimit}-${upperWordLimit} words. Aim for a word count between ${wordLimit} and ${upperWordLimit}. As you write, you MUST cite your sources using bracketed numbers like [1], [2], etc., corresponding to the provided source list. The report should be well-structured, definitive, and include tables and markdown for code if appropriate to the content.
+
+When including code examples, always use triple backticks, and specify the programming language if applicable (e.g., \`\`\`python\n# Your Python code here\n\`\`\`).
+For tabular data, use clear markdown table syntax. For example:
+| Header 1 | Header 2 | Header 3 |
+|---|---|---|
+| Row 1 Col 1 | Row 1 Col 2 | Row 1 Col 3 |
+| Row 2 Col 1 | Row 2 Col 2 | Row 2 Col 3 |
+
+Important: Synthesize the information into a cohesive report that directly answers the user's query. Do not refer to your own actions, tools used during research (like 'web search tool', 'document analysis'), or the process of generating this report. The report should be from the perspective of a knowledgeable expert providing information, not an AI describing its work.
 
 Learnings:
 ${learnings.join("\n\n---\n\n")}
@@ -698,7 +741,7 @@ ${sources
       const result = await generateText({
         model: this.googleProvider("gemini-2.0-flash-exp"),
         prompt: reportPrompt,
-        maxTokens: Math.round(wordLimit * 1.5),
+        maxTokens: maxTokens, // Use adjusted maxTokens
         temperature: 0.7,
       });
 

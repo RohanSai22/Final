@@ -7,7 +7,9 @@ import * as pdfjs from "pdfjs-dist";
 import mammoth from "mammoth";
 
 // Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`; // Old CDN path
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'; // New local path
+console.log(`FileProcessingService: PDF.js workerSrc explicitly set to: ${pdfjs.GlobalWorkerOptions.workerSrc}`); // Updated Confirmation log
 
 export interface FileProcessingResult {
   success: boolean;
@@ -133,6 +135,7 @@ class FileProcessingService {
    */
   private async extractFromPDF(file: File): Promise<string> {
     try {
+      console.log(`FileProcessingService: Attempting to load PDF with workerSrc: ${pdfjs.GlobalWorkerOptions.workerSrc}`); // Added log
       const arrayBuffer = await file.arrayBuffer();
       const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
 

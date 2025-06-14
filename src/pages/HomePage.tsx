@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react"; // Added useRef
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,10 +28,12 @@ const HomePage = () => {
   const [autonomousMode] = useState(true); // Always use autonomous mode
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null); // Created fileInputRef
 
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
+    console.log("File input changed, processing files..."); // Added console log
     const files = event.target.files;
     if (!files) return;
 
@@ -212,23 +214,24 @@ const HomePage = () => {
                       </span>
                     </div>
                   </div>
-
-                  <label className="cursor-pointer group">
-                    <input
-                      type="file"
-                      multiple
-                      accept=".txt,.pdf,.doc,.docx"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <Button
-                      variant="outline"
-                      className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-cyan-500/50 transition-all duration-300 group-hover:scale-105"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Files
-                    </Button>
-                  </label>
+                  {/* Removed wrapping label, Button now handles click */}
+                  <input
+                    type="file"
+                    id="fileUploadInput" // id can be kept or removed, ref is primary
+                    ref={fileInputRef} // Assigned ref
+                    multiple
+                    accept=".txt,.pdf,.doc,.docx"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => { console.log("HomePage: Upload Files button clicked, attempting to trigger file input."); fileInputRef.current?.click(); }} // Added console.log
+                    className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-cyan-500/50 transition-all duration-300 group-hover:scale-105"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Files
+                  </Button>
                 </div>
 
                 <Button
