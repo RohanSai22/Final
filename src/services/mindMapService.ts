@@ -670,8 +670,9 @@ Instructions:
 2.  Relationships:
     *   'sourceName' and 'targetName' MUST EXACTLY match the 'name' of an entity defined in your "entities" list for this chunk.
     *   'label': MUST be a directional action phrase, 1-3 words MAXIMUM, describing how the source connects to the target (e.g., "influences", "is part of", "developed by").
-3.  Accuracy: All information must be derived *solely* from the provided Text Chunk. Do not infer or use external knowledge.
+3.  Accuracy: All information (names, descriptions, types, relationships) MUST be derived strictly and solely from the provided "Text Chunk". Do NOT infer, assume, or use any external knowledge or information not explicitly stated in the "Text Chunk".
 4.  JSON Validity: Ensure the output is a valid JSON object with no comments or extraneous text. Your response MUST be ONLY the raw JSON object itself.
+CRITICAL: The output MUST be a single, perfectly valid JSON object/array as specified, without any comments, trailing commas, or extraneous text. Double-check your response for JSON validity before outputting.
 `;
     let jsonString = "";
     try {
@@ -683,30 +684,40 @@ Instructions:
         maxTokens: 1500,
       });
       jsonString = result.text.trim();
+
+      // Advanced Cleaning
+      // 1. Remove Markdown
       const markdownJsonRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/m;
       let match = jsonString.match(markdownJsonRegex);
       if (match && match[1]) {
         jsonString = match[1].trim();
       } else {
-        if (jsonString.startsWith("```") && jsonString.endsWith("```"))
+        if (jsonString.startsWith("```") && jsonString.endsWith("```")) {
           jsonString = jsonString.substring(3, jsonString.length - 3).trim();
-        else if (jsonString.startsWith("`") && jsonString.endsWith("`"))
+        } else if (jsonString.startsWith("`") && jsonString.endsWith("`")) {
           jsonString = jsonString.substring(1, jsonString.length - 1).trim();
+        }
       }
+
+      // 2. Isolate JSON object/array (current logic is fine for objects)
       const firstBracket = jsonString.indexOf("{");
       const lastBracket = jsonString.lastIndexOf("}");
-      if (
-        firstBracket === -1 ||
-        lastBracket === -1 ||
-        lastBracket < firstBracket
-      ) {
-        console.error(
-          "MindMapService: _extractAtomicKnowledge - No valid JSON object structure. Cleaned attempt:",
-          jsonString.substring(0, 200)
+      if (firstBracket === -1 || lastBracket === -1 || lastBracket < firstBracket) {
+        console.warn(
+          "MindMapService: _extractAtomicKnowledge - No valid JSON object structure found. Original string (first 500 chars):",
+          jsonString.substring(0, 500)
         );
         return { entities: [], relationships: [] };
       }
       jsonString = jsonString.substring(firstBracket, lastBracket + 1);
+
+      // 3. Remove problematic control characters (excluding \n, \t, \r)
+      // eslint-disable-next-line no-control-regex
+      jsonString = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+      // 4. Remove trailing commas
+      jsonString = jsonString.replace(/,\s*([}\]])/g, "$1");
+
       const parsedResult = JSON.parse(jsonString);
       if (
         !parsedResult ||
@@ -714,17 +725,19 @@ Instructions:
         !Array.isArray(parsedResult.relationships)
       ) {
         console.error(
-          "MindMapService: _extractAtomicKnowledge - Parsed JSON not AtomicGraph. Parsed:",
-          JSON.stringify(parsedResult).substring(0, 200)
+          "MindMapService: _extractAtomicKnowledge - Parsed JSON not AtomicGraph. Parsed (first 500 chars):",
+          JSON.stringify(parsedResult).substring(0, 500)
         );
         return { entities: [], relationships: [] };
       }
       return parsedResult as AtomicGraph;
-    } catch (error) {
+    } catch (error: any) {
       console.error(
-        "MindMapService: _extractAtomicKnowledge - Error. Cleaned string attempt:",
-        jsonString.substring(0, 200),
-        "Error:",
+        "MindMapService: _extractAtomicKnowledge - JSON Parsing Error. Potentially problematic JSON string (first 1000 chars):",
+        jsonString.substring(0, 1000),
+        "Specific Error:",
+        error.message,
+        "Full Error:",
         error
       );
       return { entities: [], relationships: [] };
@@ -791,8 +804,8 @@ Instructions for Updating MasterGraph:
         *   If YES (it's a duplicate):
             *   DO NOT add it as a new entity.
             *   USE the existing entity from MasterGraph. Its 'id' MUST be preserved.
-            *   SYNTHESIZE the 'description' from the MasterGraph entity and the NewAtomicGraph entity into a new, more comprehensive one-sentence description. This new description should reflect the combined knowledge and replace the old description in the MasterGraph entity.
-            *   The 'name' of the entity in MasterGraph should be preserved or refined for clarity if the new information suggests a better concise name (still 2-3 words).
+            *   SYNTHESIZE the 'description' from the MasterGraph entity and the NewAtomicGraph entity into a new, more comprehensive one-sentence description. This synthesis MUST be based strictly and solely on the information present in these two descriptions. Do not add any new information or infer beyond what is provided in these two source descriptions. The resulting description should reflect the combined knowledge and replace the old description in the MasterGraph entity.
+            *   The 'name' of the entity in MasterGraph should be preserved or refined for clarity if the new information suggests a better concise name (still 2-3 words), based only on information from the provided graphs.
             *   Map the NewAtomicGraph entity's temporary 'id' (if it had one) or its 'name' to this MasterGraph entity's 'id' for relationship updating.
         *   If NO (it's a new, distinct entity):
             *   Add it to MasterGraph.entities. Assign it a new, unique ID using the format "master_entity_X" where X is the next available integer (e.g., if current master has IDs up to master_entity_${
@@ -807,6 +820,7 @@ Instructions for Updating MasterGraph:
 3.  Output Format: Respond with ONLY a single, raw JSON object representing the updated MasterGraph. The structure MUST be: { "entities": [ { "id": "master_entity_...", "name": "...", "description": "...", "type": "..." } ], "relationships": [ { "sourceId": "master_entity_...", "targetId": "master_entity_...", "label": "..." } ] }.
     *   Note: In the output, relationships MUST use 'sourceId' and 'targetId' that refer to the 'id' field of entities in your returned "entities" list. All entity IDs in the final graph MUST follow the "master_entity_X" format.
 
+CRITICAL: The output MUST be a single, perfectly valid JSON object/array as specified, without any comments, trailing commas, or extraneous text. Double-check your response for JSON validity before outputting.
 Respond with the updated MasterGraph JSON only.
 `;
     let jsonString = "";
@@ -820,30 +834,40 @@ Respond with the updated MasterGraph JSON only.
         maxTokens: 3800,
       });
       jsonString = result.text.trim();
+
+      // Advanced Cleaning
+      // 1. Remove Markdown
       const markdownJsonRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/m;
       let match = jsonString.match(markdownJsonRegex);
       if (match && match[1]) {
         jsonString = match[1].trim();
       } else {
-        if (jsonString.startsWith("```") && jsonString.endsWith("```"))
+        if (jsonString.startsWith("```") && jsonString.endsWith("```")) {
           jsonString = jsonString.substring(3, jsonString.length - 3).trim();
-        else if (jsonString.startsWith("`") && jsonString.endsWith("`"))
+        } else if (jsonString.startsWith("`") && jsonString.endsWith("`")) {
           jsonString = jsonString.substring(1, jsonString.length - 1).trim();
+        }
       }
+
+      // 2. Isolate JSON object/array (current logic is fine for objects)
       const firstBracket = jsonString.indexOf("{");
       const lastBracket = jsonString.lastIndexOf("}");
-      if (
-        firstBracket === -1 ||
-        lastBracket === -1 ||
-        lastBracket < firstBracket
-      ) {
-        console.error(
-          "MindMapService: _mergeAtomicGraphs - No valid JSON object structure. Cleaned attempt:",
-          jsonString.substring(0, 200)
+      if (firstBracket === -1 || lastBracket === -1 || lastBracket < firstBracket) {
+        console.warn(
+          "MindMapService: _mergeAtomicGraphs - No valid JSON object structure found. Original string (first 500 chars):",
+          jsonString.substring(0, 500)
         );
         return masterGraph;
       }
       jsonString = jsonString.substring(firstBracket, lastBracket + 1);
+
+      // 3. Remove problematic control characters (excluding \n, \t, \r)
+      // eslint-disable-next-line no-control-regex
+      jsonString = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+      // 4. Remove trailing commas
+      jsonString = jsonString.replace(/,\s*([}\]])/g, "$1");
+
       const parsedResult = JSON.parse(jsonString);
       if (
         !parsedResult ||
@@ -851,17 +875,19 @@ Respond with the updated MasterGraph JSON only.
         !Array.isArray(parsedResult.relationships)
       ) {
         console.error(
-          "MindMapService: _mergeAtomicGraphs - Parsed JSON not AtomicGraph. Parsed:",
-          JSON.stringify(parsedResult).substring(0, 200)
+          "MindMapService: _mergeAtomicGraphs - Parsed JSON not AtomicGraph. Parsed (first 500 chars):",
+          JSON.stringify(parsedResult).substring(0, 500)
         );
         return masterGraph;
       }
       return parsedResult as AtomicGraph;
-    } catch (error) {
+    } catch (error: any) {
       console.error(
-        "MindMapService: _mergeAtomicGraphs - Error. Cleaned string attempt:",
-        jsonString.substring(0, 200),
-        "Error:",
+        "MindMapService: _mergeAtomicGraphs - JSON Parsing Error. Potentially problematic JSON string (first 1000 chars):",
+        jsonString.substring(0, 1000),
+        "Specific Error:",
+        error.message,
+        "Full Error:",
         error
       );
       return masterGraph;
@@ -1190,7 +1216,7 @@ Respond with the updated MasterGraph JSON only.
     dagreGraph.setGraph({
       rankdir: "TB",
       nodesep: 120,
-      ranksep: 180,
+      ranksep: 250, // Increased from 180 to 250
       marginx: 75,
       marginy: 75,
     });
@@ -1239,12 +1265,19 @@ Respond with the updated MasterGraph JSON only.
     const targetNode = currentMindMap.nodes.find((n) => n.id === nodeId);
     if (!targetNode) return { newNodes: [], newEdges: [] };
     await this.enforceRateLimit();
-    const prompt = `Generate 2-4 sub-concepts for the mind map node titled '${targetNode.data.label}' in the context of "${context}".
-Each new sub-concept 'label' MUST be a highly concise keyphrase of 2-3 words.
-For each new sub-concept, also provide a 'relationship' (a very short phrase of 1-3 words) that describes its connection to the parent node '${targetNode.data.label}'.
-Your response MUST be ONLY the raw JSON array itself. Do NOT include any markdown formatting. For example: [ { "label": "Concise Sub-concept", "relationship": "Short Connection", "nodeType": "concept" } ].
-Return a JSON array of objects with this structure:
-[ { "label": "Concise Sub-concept", "relationship": "Short Connection", "nodeType": "concept|detail|example" } ]`;
+    const prompt = `Parent Node Title: '${targetNode.data.label}'
+Context: "${context}"
+
+Task: Generate 2-4 sub-concepts (children) for the "Parent Node Title". These sub-concepts must be directly related and expand upon the parent node's theme, based strictly and solely on the provided "Context".
+
+Output Requirements:
+1.  Each new sub-concept 'label' MUST be a highly concise keyphrase (2-3 words MAX).
+2.  For each sub-concept, provide a 'relationship' (a very short phrase, 1-3 words MAX) describing its connection to the "Parent Node Title".
+3.  All generated labels and relationships MUST be derived strictly from the provided "Context". Do NOT infer or use any external knowledge.
+4.  Respond with ONLY a raw JSON array of objects. Do NOT include Markdown formatting.
+5.  JSON Structure: [ { "label": "Concise Sub-concept", "relationship": "Short Connection", "nodeType": "concept|detail|example" } ]
+
+Example (if context allowed): [ { "label": "Quantum Entanglement", "relationship": "aspect of", "nodeType": "concept" } ]`;
     const result = await generateText({
       model: this.googleProvider("gemini-2.0-flash-lite"),
       prompt,

@@ -215,7 +215,9 @@ Previous research context:
 ${context.content}
 
 Sources available:
-${context.sources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n")}`;
+${context.sources.map((s, i) => `[${i + 1}] ${s.title} - Type: ${s.type}`).join("\n")}
+
+CRITICAL INSTRUCTION: Answer the "Follow-up question" strictly and solely based on the information contained within the "Previous research context" and the "Sources available" listed above. Do NOT infer, assume, or use any external knowledge or information not explicitly stated in these provided materials. If the information to answer is not found, explicitly state that.`;
 
       const followUpRequest: ResearchRequest = {
         query: enhancedQuery,

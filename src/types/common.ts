@@ -23,7 +23,7 @@ export interface Source {
 
 export interface ChatMessage {
   id: string;
-  type: "user" | "ai";
+  type: "user" | "ai" | "thinking" | "error"; // Added "thinking" and "error" for completeness
   content: string;
   files?: UploadedFileMetadata[];
   thinkingStreamData?: ThinkingStreamData[];

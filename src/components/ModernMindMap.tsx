@@ -207,8 +207,8 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
   }
 
   const containerClass = isFullscreen
-    ? "fixed inset-0 z-50 bg-white"
-    : "rounded-3xl h-96";
+    ? "fixed inset-0 z-50 bg-white flex flex-col" // Added flex flex-col for fullscreen
+    : "rounded-3xl h-full flex flex-col"; // Added h-full and flex flex-col
 
   return (
     <Card className={containerClass}>
@@ -247,8 +247,8 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-0 flex-1">
-        <div className={isFullscreen ? "h-full" : "h-80"}>
+      <CardContent className="p-0 flex-1"> {/* flex-1 here will make CardContent take remaining height */}
+        <div className="h-full"> {/* This div should take full height of CardContent */}
           <ReactFlow
             nodes={nodes}
             edges={edges}

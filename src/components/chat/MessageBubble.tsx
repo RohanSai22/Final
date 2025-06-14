@@ -13,17 +13,37 @@ import {
 } from "@/components/ui/collapsible"; // Import Collapsible components
 import {
   ChatMessage,
-  // ThinkingStreamData, // Not directly used here, but by AutonomousThinkingProcess
+  ThinkingStreamData, // Now needed for props
   // Source, // Not directly used here
   UploadedFileMetadata,
 } from "@/types/common";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  currentThinkingStreamData?: ThinkingStreamData[]; // Added
+  isAutonomousMode?: boolean; // Added
   // Removed hasThinkingData and onViewThinking
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({
+  message,
+  currentThinkingStreamData,
+  isAutonomousMode
+}) => {
+  if (message.type === "thinking") {
+    return (
+      <div className="flex justify-start"> {/* Typically AI-side, so justify-start */}
+        <Card className="max-w-3xl bg-slate-800/30 text-white border-slate-700/30 p-4 rounded-3xl shadow-lg">
+          <AutonomousThinkingProcess
+            streamData={currentThinkingStreamData || []}
+            isAutonomous={isAutonomousMode === undefined ? true : isAutonomousMode} // Default to true if undefined
+            isVisible={true}
+          />
+        </Card>
+      </div>
+    );
+  }
+
   if (message.type === "user") {
     return (
       <div className="flex justify-end">

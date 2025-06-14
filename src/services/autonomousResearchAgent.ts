@@ -317,7 +317,9 @@ ${file.content}`;
 
       const prompt = `User's Question: ${userQuery}
 
-Based ONLY on the following text chunk, provide a complete answer. If the information within this chunk is insufficient to fully answer the question, you MUST respond with the single, exact word: 'INSUFFICIENT'.
+Your task is to answer the "User's Question" based strictly and solely on the information available in the "Text Chunk" provided below.
+Do NOT infer, assume, or use any external knowledge or information not explicitly stated in the "Text Chunk".
+If the information within this chunk is insufficient to fully answer the question, you MUST respond with the single, exact word: 'INSUFFICIENT'. Otherwise, provide the answer using only information from the chunk.
 
 Text Chunk:
 ${chunk}`;
@@ -353,10 +355,16 @@ ${chunk}`;
 
       // Updated wordLimit
       const wordLimit = researchMode === "Deep" ? 1200 : 400;
-      const synthesisPrompt = `Synthesize these partial answers, all derived from a single source document, into one cohesive and comprehensive answer to the user's original question: '${userQuery}'.
+      const synthesisPrompt = `User's original question: '${userQuery}'.
 
+Synthesize the following "Partial Answers" (which were all derived strictly from a single source document) into one cohesive and comprehensive answer to the user's question.
 Your response MUST be approximately ${wordLimit} words and should be well-structured and definitive. Aim for a word count between ${wordLimit} and ${wordLimit + (researchMode === "Deep" ? 200 : 100)}.
-Important: Synthesize these partial answers into a cohesive answer to the user's query. Do not describe the process of synthesis or mention that the information comes from a document. Present the information directly.
+
+CRITICAL INSTRUCTIONS:
+1. Base your synthesis strictly and solely on the information present in the "Partial Answers".
+2. Do NOT infer, assume, or introduce any information not explicitly stated in these "Partial Answers".
+3. Do not describe the process of synthesis or mention that the information comes from a document. Present the synthesized information directly as a comprehensive answer.
+4. If the combined "Partial Answers" are still insufficient to form a good answer, make the best attempt to answer using only the provided information, clearly stating any limitations if necessary (though the goal is a direct answer).
 
 Partial Answers:
 ${results.join("\n\n---\n\n")}`;
@@ -484,7 +492,7 @@ Generate a strategic list of search queries to accomplish this. In Normal mode, 
 Return only the queries, one per line, without numbering or additional text.`;
 
       if (fileContext) {
-        planPrompt += `\n\nThe user provided a document that was insufficient; use its content to refine your queries and avoid redundant topics: ${fileContext.substring(
+        planPrompt += `\n\nThe user provided a document (context below). Your generated search queries should aim to find NEW information NOT covered in this document. Refine your queries based strictly on this provided document context to avoid redundant topics. Document context: ${fileContext.substring(
           0,
           500
         )}...`;
@@ -533,11 +541,12 @@ Return only the queries, one per line, without numbering or additional text.`;
       const sources: Source[] = [];
       const learnings: string[] = [];
 
-      let systemPrompt = `You are a research assistant. Provide comprehensive, well-sourced information about the query. Include specific facts, recent developments, and authoritative perspectives. Your response should be based on the information found through web searches.
+      let systemPrompt = `You are a research assistant. Provide comprehensive, well-sourced information about the query. Include specific facts, recent developments, and authoritative perspectives.
+Your response MUST be based strictly and solely on the information found through web searches. Do NOT infer or assume any information not explicitly stated in the search results.
 Important: Your response should directly answer the query based on the search results. Do not mention or describe your own tools, capabilities, or internal processes (e.g., do not say 'I will use the web search tool' or 'Based on my search results...'). Focus solely on delivering the information requested by the user.`;
 
       if (fileContext) {
-        systemPrompt += ` Additional context from user files to consider: ${fileContext.substring(
+        systemPrompt += `\n\nAdditional context from user files to consider (use this to guide your understanding but prioritize web search results for the answer): ${fileContext.substring(
           0,
           2000
         )}`;
@@ -662,13 +671,17 @@ Important: Your response should directly answer the query based on the search re
       const wordLimit = researchMode === "Deep" ? 500 : 200;
       const targetSources = researchMode === "Deep" ? 100 : 10;
 
-      const reflectionPrompt = `Given the goal of writing a ${wordLimit}-word report about "${userQuery}", and based on the learnings gathered so far (${sourceCount} sources found), is the current information sufficient?
-
-Current learnings summary:
+      const reflectionPrompt = `User Query: "${userQuery}"
+Research Mode: ${researchMode} (${wordLimit}-word report goal)
+Learnings Gathered So Far (last 3 shown):
 ${learnings.slice(-3).join("\n\n")}
+Number of Sources Found: ${sourceCount} (Target: ~${targetSources})
 
-If the information is sufficient for a comprehensive ${wordLimit}-word report, respond with 'SUFFICIENT'.
-If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries that would address the biggest remaining knowledge gaps.`;
+Task: Assess if the "Learnings Gathered So Far" are sufficient to write a comprehensive ${wordLimit}-word report answering the "User Query".
+Base your assessment strictly on the provided learnings. Do not infer or assume knowledge beyond what's presented.
+
+If sufficient, respond with the single word: 'SUFFICIENT'.
+If insufficient, respond with 'INSUFFICIENT', followed by 2-3 specific follow-up search queries that would address the most critical knowledge gaps for the report. These queries should aim to gather information not evident in the current learnings.`;
 
       const result = await generateText({
         model: this.googleProvider("gemini-2.0-flash-lite"),
@@ -735,25 +748,25 @@ If not, respond with 'INSUFFICIENT' followed by 2-3 specific follow-up queries t
       const maxTokens = researchMode === "Deep" ? 4000 : 2000;
       // Note: maxTokens for generation + prompt tokens should not exceed the model's total token limit (e.g., 8192 for Gemini Flash).
 
-      const reportPrompt = `Synthesize all the following learnings into a single, cohesive final report answering '${userQuery}'.
+      const reportPrompt = `User Query: '${userQuery}'
+Research Mode: ${researchMode} (${wordLimit}-${upperWordLimit} word target)
 
-Your response MUST be approximately ${wordLimit}-${upperWordLimit} words. Aim for a word count between ${wordLimit} and ${upperWordLimit}. As you write, you MUST cite your sources using bracketed numbers like [1], [2], etc., corresponding to the provided source list. The report should be well-structured, definitive, and include tables and markdown for code if appropriate to the content.
+Task: Synthesize all the "Learnings" provided below into a single, cohesive, and comprehensive final report that directly answers the "User Query".
 
-When including code examples, always use triple backticks, and specify the programming language if applicable (e.g., \`\`\`python\n# Your Python code here\n\`\`\`).
-For tabular data, use clear markdown table syntax. For example:
-| Header 1 | Header 2 | Header 3 |
-|---|---|---|
-| Row 1 Col 1 | Row 1 Col 2 | Row 1 Col 3 |
-| Row 2 Col 1 | Row 2 Col 2 | Row 2 Col 3 |
-
-Important: Synthesize the information into a cohesive report that directly answers the user's query. Do not refer to your own actions, tools used during research (like 'web search tool', 'document analysis'), or the process of generating this report. The report should be from the perspective of a knowledgeable expert providing information, not an AI describing its work.
+CRITICAL INSTRUCTIONS:
+1.  Strict Adherence to Provided Context: Your entire report MUST be based strictly and solely on the information contained within the "Learnings" section. Do NOT use any external knowledge, infer information not explicitly stated, or make assumptions beyond the provided materials.
+2.  Citation: You MUST cite sources for the information. Use bracketed numbers like [1], [2], etc., corresponding to the "Sources for citation" list provided at the end. Every piece of significant information or claim should ideally have a citation.
+3.  Word Count: The report should be approximately ${wordLimit}-${upperWordLimit} words.
+4.  Structure and Formatting: The report should be well-structured (e.g., introduction, body paragraphs, conclusion). Use Markdown for formatting. If tables or code examples are appropriate and supported by the learnings, include them using standard Markdown syntax (e.g., \`\`\`python ... \`\`\` for code, pipe tables for tabular data).
+5.  Perspective: Write from the perspective of a knowledgeable expert. Do NOT refer to your own actions, the research process, tools used (like 'web search tool' or 'document analysis'), or the act of generating this report. Focus on delivering the synthesized information directly.
+6.  Completeness: If the provided "Learnings" are insufficient to fully address aspects of the "User Query" or to meet the word count naturally while adhering to strict context, focus on thoroughly covering what *is* available in the learnings. Do not invent content to fill gaps. It's better to have a shorter, accurate report based on the given context than a longer one with unsupported information.
 
 Learnings:
 ${learnings.join("\n\n---\n\n")}
 
 Sources for citation:
 ${sources
-  .map((source, index) => `[${index + 1}] ${source.title} - ${source.url}`)
+  .map((source, index) => `[${index + 1}] ${source.title} (${source.sourceType}) - ${source.url}`)
   .join("\n")}`;
 
       const result = await generateText({

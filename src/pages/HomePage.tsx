@@ -1,14 +1,20 @@
-import React, { useState, useRef } from "react"; // Added useRef
+import React, { useState, useRef, useEffect } from "react"; // Added useEffect
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import ChatHistorySidebar from "@/components/chat/ChatHistorySidebar"; // Added
+import { ChatSession } from "@/types/common"; // Added
+// Removed duplicate toast import, original one is fine
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Upload, ArrowRight, Sparkles } from "lucide-react";
+import { Upload, ArrowRight, Sparkles, Menu } from "lucide-react"; // Added Menu
 import { toast } from "@/hooks/use-toast";
 import SuggestionCards from "@/components/home/SuggestionCards";
 import FileUploadArea from "@/components/home/FileUploadArea";
+import { useSidebar } from "@/contexts/SidebarContext"; // Added
 import { fileProcessingService } from "@/services/fileProcessingService";
+
+const CHAT_HISTORY_KEY = 'novah_chat_history'; // Added
 
 interface UploadedFile {
   id: string;
@@ -29,6 +35,39 @@ const HomePage = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null); // Created fileInputRef
+
+  const { isSidebarOpen, toggleSidebar } = useSidebar(); // Added
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  const currentSessionId = null; // No active session on home page
+
+  useEffect(() => {
+    try {
+      const historyRaw = localStorage.getItem(CHAT_HISTORY_KEY);
+      if (historyRaw) {
+        const loadedSessions = JSON.parse(historyRaw).filter((s: ChatSession | null) => s && typeof s.id !== 'undefined');
+        setChatHistory(loadedSessions);
+      }
+    } catch (error) {
+      console.error("HomePage: Error parsing chat history from localStorage:", error);
+      setChatHistory([]);
+    }
+  }, []);
+
+  const handleSelectChat = (sessionId: string) => {
+    navigate('/chat', { state: { sessionIdToLoad: sessionId } });
+  };
+
+  const handleNewChat = () => {
+    navigate('/chat', { state: { startNewChat: true } });
+  };
+
+  const handleDeleteChat = (sessionId: string) => {
+    const updatedHistory = chatHistory.filter(s => s.id !== sessionId);
+    setChatHistory(updatedHistory);
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updatedHistory));
+    toast({ title: "Chat Deleted", description: `Session removed from history.`, variant: "default" });
+    // No need to switch to another chat or new chat, as we are on the home page.
+  };
 
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -157,27 +196,50 @@ const HomePage = () => {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Animated background particles */}
-      <div className="absolute inset-0">
-        {[...Array(50)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 bg-cyan-400/20 rounded-full animate-float"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 8}s`,
-              animationDuration: `${4 + Math.random() * 6}s`,
-            }}
+    <div className="flex h-screen overflow-hidden relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      {/* Sidebar */}
+      <div className={`transition-all duration-300 ease-in-out flex-shrink-0 bg-slate-850 h-full overflow-y-auto custom-scrollbar ${isSidebarOpen ? "w-72" : "w-0"}`}>
+        {isSidebarOpen && ( // Render content only when open or during transition out (for smoother animation if content itself animates)
+          <ChatHistorySidebar
+            chatHistory={chatHistory}
+            currentSessionId={currentSessionId}
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
+            onDeleteChat={handleDeleteChat}
           />
-        ))}
+        )}
       </div>
 
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-8">
-        <div className="w-full max-w-6xl space-y-16">
-          {/* Hero Section */}
-          <div className="text-center space-y-8">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-y-auto"> {/* Added flex flex-col */}
+        {/* Header for Main Content Area (for toggle button) */}
+        <div className="sticky top-0 z-20 p-2 bg-slate-900/50 backdrop-blur-md flex items-center"> {/* Added flex items-center */}
+          <Button variant="ghost" size="icon" onClick={toggleSidebar} className="text-white hover:text-cyan-400">
+            <Menu className="h-6 w-6" />
+          </Button>
+          {/* You can add a title here like "Home Page" if needed */}
+        </div>
+
+        {/* Animated background particles - needs to be contained if not body-wide */}
+        <div className="absolute inset-0 pointer-events-none"> {/* Made pointer-events-none */}
+          {[...Array(50)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-1 h-1 bg-cyan-400/20 rounded-full animate-float"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 8}s`,
+                animationDuration: `${4 + Math.random() * 6}s`,
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center justify-center min-h-full p-8 pt-4"> {/* Added pt-4 to account for new header height */}
+          <div className="w-full max-w-6xl space-y-16">
+            {/* Hero Section */}
+            <div className="text-center space-y-8">
             <div className="relative">
               <h1 className="text-7xl md:text-8xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent animate-glow mb-6">
                 Novah

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Map, X } from "lucide-react"; // Removed FilePlus as New Chat button is in sidebar
+import { Map, X, Menu } from "lucide-react"; // Added Menu
 // Dialog related imports are removed as the dialog for thinking process is removed
 import MindMap from "@/components/ModernMindMap";
+import { useSidebar } from "@/contexts/SidebarContext"; // Added
 import { toast } from "@/hooks/use-toast";
 import ThinkingProcess from "@/components/chat/ThinkingProcess"; // For older 'thinking' steps
 import AutonomousThinkingProcess from "@/components/chat/AutonomousThinkingProcess";
@@ -44,6 +45,7 @@ const INITIAL_DISPLAY_LEVEL = 3;
 const ChatPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isSidebarOpen, toggleSidebar, setIsSidebarOpen } = useSidebar(); // Added
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -130,46 +132,75 @@ const ChatPage = () => {
       }
     }
 
-    if (location.state?.query) { // Check if location.state and query exist
-        console.log("ChatPage: New navigation state present. Initializing as a new session.");
+    const state = location.state as {
+      query?: string;
+      files?: ProcessedFileInput[];
+      deepResearch?: boolean;
+      autonomousMode?: boolean;
+      sessionIdToLoad?: string;
+      startNewChat?: boolean;
+    } | null;
+
+    if (state?.sessionIdToLoad) {
+      console.log("ChatPage: Loading session from navigation state:", state.sessionIdToLoad);
+      // Ensure history is loaded before trying to select a chat
+      if (loadedSessions.find(s => s.id === state.sessionIdToLoad)) {
+        handleSelectChat(state.sessionIdToLoad);
+      } else if (historyRaw) { // If history was just loaded, try again
+        const freshlyLoaded = JSON.parse(historyRaw).filter((s: ChatSession | null) => s && typeof s.id !== 'undefined');
+        if (freshlyLoaded.find((s: ChatSession) => s.id === state.sessionIdToLoad)) {
+          setChatHistory(freshlyLoaded); // Ensure chatHistory state is updated before select
+          handleSelectChat(state.sessionIdToLoad);
+        } else {
+          console.warn(`ChatPage: Session ID ${state.sessionIdToLoad} not found in history.`);
+          if (loadedSessions.length > 0) handleSelectChat(loadedSessions[loadedSessions.length - 1].id); else handleNewChat();
+        }
+      } else { // No history, new chat
+         console.warn(`ChatPage: Session ID ${state.sessionIdToLoad} requested but no history. Starting new chat.`);
+         handleNewChat();
+      }
+      navigate(location.pathname, { replace: true, state: {} }); // Clear state
+      setIsSidebarOpen(true); // Open sidebar when a chat is selected via this path
+    } else if (state?.startNewChat) {
+      console.log("ChatPage: Starting new chat from navigation state.");
+      handleNewChat();
+      navigate(location.pathname, { replace: true, state: {} }); // Clear state
+      setIsSidebarOpen(true); // Open sidebar for new chat
+    } else if (state?.query) {
+        console.log("ChatPage: New research query from navigation state.");
         const newId = uuidv4();
         setCurrentSessionId(newId);
-
-        const { query, files, deepResearch, autonomousMode: navAutonomousMode } = location.state as any;
-
+        const { query, files, deepResearch, autonomousMode: navAutonomousMode } = state;
         const newName = query ? query.substring(0, 50) : `New Session ${new Date().toLocaleTimeString()}`;
         setCurrentSessionName(newName);
         setOriginalQuery(query || "");
         setIsAutonomousMode(navAutonomousMode === undefined ? true : navAutonomousMode);
-
         const initialProcessedFilesFromNav: ProcessedFileInput[] = files || [];
         setUploadedFiles([]);
         setMessages([]);
         setFullMindMapData(null);
         setDisplayedMindMapData(null);
-
         handleInitialQuery(query, initialProcessedFilesFromNav, deepResearch);
-    } else if (loadedSessions.length > 0) {
+        navigate(location.pathname, { replace: true, state: {} }); // Clear state
+        setIsSidebarOpen(true); // Open sidebar for new query
+    } else if (loadedSessions.length > 0 && !messages.length) { // Only load most recent if no messages currently (e.g. initial load)
         const mostRecentSession = loadedSessions[loadedSessions.length - 1];
-        handleSelectChat(mostRecentSession.id); // Use handleSelectChat to load the session
-    } else {
+        console.log("ChatPage: Loading most recent session:", mostRecentSession.id);
+        handleSelectChat(mostRecentSession.id);
+        // setIsSidebarOpen(true); // Optionally open sidebar
+    } else if (loadedSessions.length === 0 && !messages.length) { // No history and no current messages
         console.log("ChatPage: No saved history and no navigation state. Starting a fresh session.");
-        setCurrentSessionId(uuidv4()); // Ensure a new ID for a completely fresh start
-        setCurrentSessionName(null);
-        setMessages([]);
-        setOriginalQuery("");
-        setUploadedFiles([]);
-        setFullMindMapData(null);
-        setDisplayedMindMapData(null);
+        handleNewChat(); // Start a new chat if no history and no query
     }
-  }, [location.state]);
+    // If there are messages already, or none of the above conditions met, do nothing to preserve current state.
+  }, [location.state, navigate]); // Added navigate to dependency array
 
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]); // Removed streamingContent as it's not used
+  }, [messages]);
 
-  // handleViewThinking function removed
+  // Removed handleViewThinking function
 
   const handleInitialQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
     const filesForDisplay = currentFiles.map(f => ({ name: f.name, type: f.type || 'unknown', size: 0, id: uuidv4(), status: "uploaded" as "uploaded" }));
@@ -184,9 +215,18 @@ const ChatPage = () => {
 
   const processResearchQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
     setIsProcessing(true);
-    setCurrentThinking([]); // For older thinking steps, if any
-    const liveThinkingStreamData: ThinkingStreamData[] = [];
+    setCurrentThinking([]);
+    const liveThinkingStreamData: ThinkingStreamData[] = []; // This will be populated by callbacks
     setCurrentThinkingStreamData([]); // Clear live display for new query
+
+    // Add thinking message
+    const thinkingMessage: ChatMessage = {
+      id: uuidv4(),
+      type: "thinking",
+      content: "Thinking...", // Placeholder content, MessageBubble will handle actual display
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, thinkingMessage]);
 
     const processAndSetMindMapData = (mindMap: MindMapData) => {
       setFullMindMapData(mindMap);
@@ -207,43 +247,62 @@ const ChatPage = () => {
         await autonomousResearchAgent.conductResearch(query, currentFiles, researchMode, {
             onThinkingData: onThinkingDataCallback,
             onFinalAnswer: async (report) => {
+              setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message
               const aiMessage: ChatMessage = {
                 id: uuidv4(), type: "ai", content: report.content,
-                thinkingStreamData: [...liveThinkingStreamData],
+                thinkingStreamData: [...liveThinkingStreamData], // Use the accumulated stream for this message
                 sources: report.sources, timestamp: new Date(), isAutonomous: true,
               };
               setMessages((prev) => [...prev, aiMessage]);
-              if (mindMapService) {
-                const mindMap = await mindMapService.generateMindMap(report.content, originalQuery || query, 10);
-                if (mindMap) processAndSetMindMapData(mindMap);
-              }
+              // if (mindMapService) {
+              //   const mindMap = await mindMapService.generateMindMap(report.content, originalQuery || query, 10);
+              //   if (mindMap) processAndSetMindMapData(mindMap);
+              // }
               // No more localStorage for thinking_process
-              setCurrentThinkingStreamData([]); setIsProcessing(false);
+              setCurrentThinkingStreamData([]); // Clear global stream data after processing this message
+              setIsProcessing(false);
             },
-            onError: (error) => { setIsProcessing(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
+            onError: (error) => {
+              setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message
+              setIsProcessing(false);
+              toast({title: "Research Error", description: error.message, variant: "destructive"});
+              setCurrentThinkingStreamData([]); // Clear global stream
+            },
           }
         );
       } else {
         const aiCallbacks: AIServiceCallbacks = {
-          onThinkingUpdate: onThinkingDataCallback,
+          onThinkingUpdate: onThinkingDataCallback, // This will update currentThinkingStreamData for the bubble
           onProgress: (stage, progress) => console.log(`Research progress: ${stage} (${progress}%)`),
-          onError: (error) => { setIsProcessing(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
+          onError: (error) => {
+            setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message
+            setIsProcessing(false);
+            toast({title: "Research Error", description: error.message, variant: "destructive"});
+            setCurrentThinkingStreamData([]); // Clear global stream
+          },
           onComplete: (response) => {
+            setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message
             const aiMessage: ChatMessage = {
               id: uuidv4(), type: "ai", content: response.finalReport.content,
-              thinkingStreamData: [...liveThinkingStreamData, ...(response.thinkingProcess || [])],
+              thinkingStreamData: [...liveThinkingStreamData, ...(response.thinkingProcess || [])], // Use accumulated stream
               sources: response.finalReport.sources,
               timestamp: new Date(), isAutonomous: false,
             };
             setMessages((prev) => [...prev, aiMessage]);
-            if (response.mindMap) processAndSetMindMapData(response.mindMap);
+            // if (response.mindMap) processAndSetMindMapData(response.mindMap);
             // No more localStorage for thinking_process
-            setCurrentThinkingStreamData([]); setIsProcessing(false);
+            setCurrentThinkingStreamData([]); // Clear global stream data
+            setIsProcessing(false);
           },
         };
         await aiService.processResearch({ query, files: [], researchMode }, aiCallbacks);
       }
-    } catch (error: any) { setIsProcessing(false); toast({title: "Processing Error", description: error.message, variant: "destructive"});}
+    } catch (error: any) {
+      setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message on outer error
+      setIsProcessing(false);
+      toast({title: "Processing Error", description: error.message, variant: "destructive"});
+      setCurrentThinkingStreamData([]); // Clear global stream
+    }
   };
 
   const handleSendMessage = async () => {
@@ -271,42 +330,68 @@ const ChatPage = () => {
       id: uuidv4(), type: "user", content: currentQuery,
       files: filesForDisplay.length > 0 ? filesForDisplay : undefined, timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    // Do not set messages with userMessage yet, will be combined with thinking message
     setNewMessage("");
     setUploadedFiles([]);
-    setIsProcessing(true);
-    const liveThinkingStreamData: ThinkingStreamData[] = []; // For this specific follow-up
-    setCurrentThinkingStreamData([]); // Clear live display
+
+    // Add thinking message for follow-up
+    const thinkingMessage: ChatMessage = {
+      id: uuidv4(),
+      type: "thinking",
+      content: "Thinking...",
+      timestamp: new Date()
+    };
+    // Add user message and thinking message together
+    setMessages((prev) => [...prev, userMessage, thinkingMessage]);
+    setIsProcessing(true); // Set isProcessing after user message is shown
+
+    const liveThinkingStreamData: ThinkingStreamData[] = [];
+    setCurrentThinkingStreamData([]); // Clear global stream for new follow-up
 
     try {
-      const lastAiMessage = messages.filter((m) => m.type === "ai").pop();
+      const lastAiMessage = messages.filter((m) => m.type === "ai" && !m.isAutonomous).pop(); // Ensure we get a non-autonomous AI message for context
       if (lastAiMessage && !isAutonomousMode) {
         const contextReport: FinalReport = {
           content: lastAiMessage.content, sources: lastAiMessage.sources || [],
           wordCount: lastAiMessage.content.split(" ").length,
         };
         const followUpCallbacks: AIServiceCallbacks = {
-          onThinkingUpdate: (data) => { liveThinkingStreamData.push(data); setCurrentThinkingStreamData([...liveThinkingStreamData]); },
+          onThinkingUpdate: (data) => { liveThinkingStreamData.push(data); setCurrentThinkingStreamData([...liveThinkingStreamData]); }, // Updates global stream
           onProgress: (stage, progress) => console.log(`Follow-up progress: ${stage} (${progress}%)`),
-          onError: (error) => { setIsProcessing(false); toast({title: "Follow-up Error", description: error.message, variant: "destructive"});},
+          onError: (error) => {
+            setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message
+            setIsProcessing(false);
+            toast({title: "Follow-up Error", description: error.message, variant: "destructive"});
+            setCurrentThinkingStreamData([]); // Clear global stream
+          },
           onComplete: (response) => {
+            setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message
             const aiMessage: ChatMessage = {
               id: uuidv4(), type: "ai", content: response.finalReport.content,
-              thinkingStreamData: [...liveThinkingStreamData, ...(response.thinkingProcess || [])],
+              thinkingStreamData: [...liveThinkingStreamData, ...(response.thinkingProcess || [])], // Use accumulated stream
               sources: response.finalReport.sources,
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, aiMessage]);
-            if (response.mindMap) processAndSetMindMapData(response.mindMap);
+            // if (response.mindMap) processAndSetMindMapData(response.mindMap);
             // No more localStorage for thinking_process
-            setCurrentThinkingStreamData([]); setIsProcessing(false);
+            setCurrentThinkingStreamData([]); // Clear global stream
+            setIsProcessing(false);
           },
         };
         await aiService.processFollowUp(currentQuery, contextReport, followUpCallbacks);
       } else {
-        await handleInitialQuery(currentQuery, processedFilesForAgent, false);
+        // If no last AI message or if in autonomous mode, treat as initial query.
+        setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message from handleSendMessage
+        // processResearchQuery will add its own thinking message and handle setIsProcessing
+        await processResearchQuery(currentQuery, processedFilesForAgent, false);
       }
-    } catch (error: any) { setIsProcessing(false); toast({title: "Message Sending Error", description: error.message, variant: "destructive"});}
+    } catch (error: any) {
+      setMessages(prev => prev.filter(m => m.type !== "thinking")); // Remove thinking message on outer error
+      setIsProcessing(false);
+      toast({title: "Message Sending Error", description: error.message, variant: "destructive"});
+      setCurrentThinkingStreamData([]); // Clear global stream
+    }
   };
 
   const handleNewChat = () => {
@@ -429,27 +514,40 @@ const ChatPage = () => {
 
   return (
     <div className="flex h-screen overflow-hidden relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="w-72 flex-shrink-0 bg-slate-850 h-full overflow-y-auto custom-scrollbar">
-        <ChatHistorySidebar
-          chatHistory={chatHistory}
-          currentSessionId={currentSessionId}
-          onSelectChat={handleSelectChat}
-          onNewChat={handleNewChat}
-          onDeleteChat={handleDeleteChat}
-        />
+      <div className={`transition-all duration-300 ease-in-out flex-shrink-0 bg-slate-850 h-full overflow-y-auto custom-scrollbar ${isSidebarOpen ? "w-72" : "w-0"}`}>
+        {isSidebarOpen && (
+          <ChatHistorySidebar
+            chatHistory={chatHistory}
+            currentSessionId={currentSessionId}
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
+            onDeleteChat={handleDeleteChat}
+          />
+        )}
       </div>
 
       <div className="flex-1 flex flex-col h-screen overflow-y-hidden">
         <div className="sticky top-0 z-30 bg-slate-800/60 border-b border-slate-700/50 backdrop-blur-md p-4">
           <div className="flex items-center justify-between max-w-7xl mx-auto">
-            <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>
-              Novah {currentSessionName && <span className="text-sm text-slate-400 ml-2 font-normal">({currentSessionName})</span>}
-            </h1>
+            <div className="flex items-center"> {/* Wrapper for button and title */}
+              <Button variant="ghost" size="icon" onClick={toggleSidebar} className="text-white hover:text-cyan-400 mr-2">
+                <Menu className="h-6 w-6" />
+              </Button>
+              <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>
+                Novah {currentSessionName && <span className="text-sm text-slate-400 ml-2 font-normal">({currentSessionName})</span>}
+              </h1>
+            </div>
             <div className="flex items-center space-x-2">
               {(messages.some(m => m.type === 'ai')) && !showMindMap && (
                 <Button onClick={generateAndShowMindMap} className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white" disabled={isProcessing} size="sm">
                   <Map className="h-4 w-4 mr-2" />
                 {fullMindMapData ? "View Mind Map" : "Generate Mind Map"}
+              </Button>
+            )}
+            {showMindMap && fullMindMapData && (
+              <Button onClick={generateAndShowMindMap} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white" disabled={isProcessing} size="sm">
+                <Map className="h-4 w-4 mr-2" />
+                Regenerate Mind Map
               </Button>
             )}
             {showMindMap && (
@@ -469,23 +567,12 @@ const ChatPage = () => {
                   <MessageBubble
                     key={message.id}
                     message={message}
+                    currentThinkingStreamData={currentThinkingStreamData}
+                    isAutonomousMode={isAutonomousMode}
                     // Removed onViewThinking and hasThinkingData props
                   />
                 ))}
-                {isProcessing && messages.length > 0 && messages[messages.length-1].type === 'user' && (
-                  <div className="flex justify-start">
-                    <div className="max-w-3xl">
-                      {isAutonomousMode ? (
-                        <AutonomousThinkingProcess streamData={currentThinkingStreamData} isAutonomous={true} isVisible={true} />
-                      ) : (
-                        // currentThinking is for older, non-streamed thinking steps.
-                        // If currentThinking can be represented as ThinkingStreamData[], it could also use AutonomousThinkingProcess.
-                        // For now, keeping ThinkingProcess component for it if it's a different structure.
-                        currentThinking.length > 0 && <ThinkingProcess steps={currentThinking} isVisible={true} />
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* Old thinking indicator block is removed here */}
                 <div ref={messagesEndRef} />
               </div>
             </div>
@@ -505,6 +592,7 @@ const ChatPage = () => {
               <div className="flex flex-col bg-slate-800/50 h-full">
                 <div className="p-4 border-b border-slate-700/50 flex items-center justify-between sticky top-0 bg-slate-800/70 backdrop-blur-sm z-10">
                   <h3 className="text-white font-medium">Knowledge Map</h3>
+                  {/* Consider moving Regenerate button here if preferred */}
                   <Button variant="ghost" size="sm" onClick={() => setShowMindMap(false)} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></Button>
                 </div>
                 <div className="flex-1">
