@@ -12,6 +12,12 @@ import { fileProcessingService } from "./fileProcessingService";
 // CORE TYPES & INTERFACES
 // =====================================================================================
 
+export interface ProcessedFileInput {
+  name: string;
+  content: string;
+  type: string; // e.g., 'pdf', 'docx', 'txt'
+}
+
 export interface ThinkingStreamData {
   type:
     | "status"
@@ -128,7 +134,7 @@ class AutonomousResearchAgent {
    */
   async conductResearch(
     userQuery: string,
-    files: File[],
+    files: ProcessedFileInput[],
     researchMode: "Normal" | "Deep",
     callbacks: StreamingCallback
   ): Promise<void> {
@@ -167,24 +173,36 @@ class AutonomousResearchAgent {
    */
   private async executeFileFirstAnalysis(
     userQuery: string,
-    files: File[],
+    files: ProcessedFileInput[],
     researchMode: "Normal" | "Deep",
     callbacks: StreamingCallback
   ): Promise<void> {
     callbacks.onThinkingData({
       type: "status",
-      data: { message: `📄 Analyzing ${files.length} file(s)...` },
+      data: { message: `📄 Analyzing ${files.length} pre-processed file(s)...` },
       timestamp: Date.now(),
     });
 
-    // Extract and process all files
+    // Combine content from pre-processed files
     let combinedFileContent = "";
     for (const file of files) {
-      try {
-        const content = await fileProcessingService.extractTextFromFile(file);
-        combinedFileContent += `\n\n--- ${file.name} ---\n${content}`;
-      } catch (error) {
-        console.warn(`Failed to process file ${file.name}:`, error);
+      callbacks.onThinkingData({
+        type: "status",
+        data: { message: `Appending content from ${file.name}`},
+        timestamp: Date.now(),
+      });
+      if (file.content && file.content.trim().length > 0) {
+        combinedFileContent += `
+
+--- ${file.name} ---
+${file.content}`;
+      } else {
+        console.warn(`File ${file.name} has no content or content is empty.`);
+         callbacks.onThinkingData({
+            type: "status",
+            data: { message: `Skipping ${file.name} as it has no content.`},
+            timestamp: Date.now(),
+        });
       }
     }
 

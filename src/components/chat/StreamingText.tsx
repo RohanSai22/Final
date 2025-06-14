@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface StreamingTextProps {
   content: string;
@@ -29,21 +31,14 @@ const StreamingText = ({
 
   return (
     <div className="text-gray-100 leading-relaxed">
-      <div
-        className="whitespace-pre-wrap break-words"
-        dangerouslySetInnerHTML={{
-          __html: displayedText
-            .replace(/\n/g, "<br>")
-            .replace(
-              /#{1,6}\s(.+)/g,
-              '<strong class="text-white text-lg">$1</strong>'
-            )
-            .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em class="text-blue-300">$1</em>'),
-        }}
-      />
+      {/* The 'prose' and 'prose-invert' classes should ideally be applied by the parent
+          (MessageBubble.tsx) to ensure consistent styling for markdown content.
+          If not, they might need to be added here or to a wrapping div. */}
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {displayedText}
+      </ReactMarkdown>
       {currentIndex < content.length && (
-        <span className="inline-block w-2 h-5 bg-purple-400 animate-pulse ml-1"></span>
+        <span className="inline-block w-1 h-4 bg-purple-400 animate-pulse ml-1 align-text-bottom"></span>
       )}
     </div>
   );

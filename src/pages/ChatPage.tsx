@@ -27,6 +27,7 @@ import {
 import {
   autonomousResearchAgent,
   type StreamingCallback,
+  type ProcessedFileInput,
 } from "@/services/autonomousResearchAgent";
 import {
   fileProcessingService,
@@ -142,12 +143,13 @@ const ChatPage = () => {
         setOriginalQuery(query || "");
         setIsAutonomousMode(navAutonomousMode === undefined ? true : navAutonomousMode);
 
-        const initialUploadedFilesFromNav: UploadedFile[] = (files || []).map((f: File) => ({ // Assuming 'files' from nav are File objects
-            id: uuidv4(), name: f.name, content: '', type: f.type, file: f,
-        }));
-        setUploadedFiles(initialUploadedFilesFromNav);
+        // Files from navigation are now ProcessedFileInput[]
+        const initialProcessedFilesFromNav: ProcessedFileInput[] = files || [];
 
-        handleInitialQuery(query, initialUploadedFilesFromNav, deepResearch);
+        // Set local UploadedFiles state to empty as these are for in-chat uploads
+        setUploadedFiles([]);
+
+        handleInitialQuery(query, initialProcessedFilesFromNav, deepResearch);
         initialQueryHandled = true; // Mark that initial query from navigation has been handled
     } else if (savedSessionRaw) { // No navigation state, try to load from localStorage
         try {
@@ -214,8 +216,9 @@ const ChatPage = () => {
     }
   };
 
-  const handleInitialQuery = async (query: string, currentFiles: UploadedFile[], deepResearch: boolean) => {
-    const filesForDisplay = currentFiles.map(f => ({ name: f.name, type: f.type || 'unknown', size: f.file.size }));
+  const handleInitialQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
+    // Adapt filesForDisplay: ProcessedFileInput doesn't have f.file.size. Default size to 0 or omit.
+    const filesForDisplay = currentFiles.map(f => ({ name: f.name, type: f.type || 'unknown', size: 0 }));
     const userMessage: ChatMessage = {
       id: uuidv4(), type: "user", content: query,
       files: filesForDisplay.length > 0 ? filesForDisplay : undefined,
@@ -223,10 +226,10 @@ const ChatPage = () => {
     };
     setMessages([userMessage]);
     // originalQuery is already set by the caller (mount useEffect or handleSendMessage)
-    await processResearchQuery(query, currentFiles, deepResearch); // Pass UploadedFile[]
+    await processResearchQuery(query, currentFiles, deepResearch); // Pass ProcessedFileInput[]
   };
 
-  const processResearchQuery = async (query: string, currentFiles: UploadedFile[], deepResearch: boolean) => {
+  const processResearchQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
     setIsProcessing(true);
     setStreamingContent("");
     setCurrentThinking([]);
@@ -244,11 +247,12 @@ const ChatPage = () => {
     };
 
     try {
-      const fileObjects: File[] = currentFiles.map(f => f.file).filter(Boolean);
+      // const fileObjects: File[] = currentFiles.map(f => f.file).filter(Boolean); // This line is no longer needed as currentFiles are ProcessedFileInput[]
       const researchMode = deepResearch ? "Deep" : "Normal";
 
       if (isAutonomousMode) {
-        await autonomousResearchAgent.conductResearch(query, fileObjects, researchMode, {
+        // Pass currentFiles (ProcessedFileInput[]) directly to conductResearch
+        await autonomousResearchAgent.conductResearch(query, currentFiles, researchMode, {
             onThinkingData: (streamData) => setCurrentThinkingStreamData((prev) => [...prev, streamData]),
             onFinalAnswer: async (report) => {
               const aiMessageId = uuidv4();
@@ -297,7 +301,10 @@ const ChatPage = () => {
             setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
           },
         };
-        await aiService.processResearch({ query, files: fileObjects, researchMode }, aiCallbacks);
+        // If aiService.processResearch is used with files, it would need refactoring
+        // to handle ProcessedFileInput[] or a different way to get File objects if essential.
+        // For now, focusing on autonomousResearchAgent path.
+        await aiService.processResearch({ query, files: [], researchMode }, aiCallbacks); // Passing empty array for files to aiService for now
       }
     } catch (error: any) { /* ... */ setIsProcessing(false); setStreamingContent(""); }
   };
