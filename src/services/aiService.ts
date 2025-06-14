@@ -11,8 +11,9 @@ import type {
   Source,
   FinalReport,
   StreamingCallback,
-  MindMapData,
+  // MindMapData is now imported from common
 } from "./autonomousResearchAgent";
+import { MindMapData } from "@/types/common"; // Added import
 
 export interface ResearchRequest {
   query: string;
@@ -345,5 +346,5 @@ export type {
   Source,
   FinalReport,
   StreamingCallback,
-  MindMapData,
+  // MindMapData no longer re-exported from here
 } from "./autonomousResearchAgent";

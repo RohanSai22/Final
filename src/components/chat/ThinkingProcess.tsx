@@ -16,20 +16,9 @@ import {
   BarChart,
   Lightbulb,
 } from "lucide-react";
+import { ThinkingStep } from "@/types/common"; // Import shared type
 
-interface ThinkingStep {
-  id: number;
-  type:
-    | "planning"
-    | "researching"
-    | "sources"
-    | "analyzing"
-    | "replanning"
-    | "file_processing";
-  title: string;
-  content: string;
-  status: "processing" | "complete" | "pending";
-}
+// Removed local definition of ThinkingStep
 
 interface ThinkingProcessProps {
   steps: ThinkingStep[];
