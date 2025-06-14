@@ -137,10 +137,19 @@ const HomePage = () => {
     }
 
     setIsLoading(true);
+
+    const processedFilesForChat = uploadedFiles
+      .filter(uf => uf.processed && uf.content && uf.content.trim().length > 0 && !uf.error)
+      .map(uf => ({
+        name: uf.name,
+        content: uf.content,
+        type: uf.type
+      }));
+
     navigate("/chat", {
       state: {
         query,
-        files: uploadedFiles,
+        files: processedFilesForChat, // Pass the new array
         deepResearch,
         autonomousMode,
       },
