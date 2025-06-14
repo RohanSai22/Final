@@ -22,7 +22,7 @@ import {
   type MindMapData,
   type MindMapNode,
   type MindMapEdge,
-} from "@/services/autonomousResearchAgent";
+} from "@/types/common"; // Updated import path
 
 import "@xyflow/react/dist/style.css";
 

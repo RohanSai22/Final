@@ -1,87 +1,43 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Map, X, FilePlus } from "lucide-react"; // Added FilePlus for New Chat
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Map, X } from "lucide-react"; // Removed FilePlus as New Chat button is in sidebar
+// Dialog related imports are removed as the dialog for thinking process is removed
 import MindMap from "@/components/ModernMindMap";
 import { toast } from "@/hooks/use-toast";
-import ThinkingProcess from "@/components/chat/ThinkingProcess";
+import ThinkingProcess from "@/components/chat/ThinkingProcess"; // For older 'thinking' steps
 import AutonomousThinkingProcess from "@/components/chat/AutonomousThinkingProcess";
-import StreamingText from "@/components/chat/StreamingText";
+// StreamingText is used by MessageBubble
 import MessageBubble from "@/components/chat/MessageBubble";
 import ChatInput from "@/components/chat/ChatInput";
 import {
   aiService,
-  type ThinkingStreamData,
+  type ThinkingStreamData, // Still needed for live thinking stream
   type FinalReport,
-  type Source,
+  // type Source, // Source is part of ChatMessage, not directly used here
   type MindMapData,
   type AIServiceCallbacks,
 } from "@/services/aiService";
 import {
   autonomousResearchAgent,
-  type StreamingCallback,
+  // type StreamingCallback, // AIServiceCallbacks is used
   type ProcessedFileInput,
 } from "@/services/autonomousResearchAgent";
 import {
   fileProcessingService,
 } from "@/services/fileProcessingService";
 import { mindMapService } from "@/services/mindMapService";
+import {
+  UploadedFileMetadata,
+  UploadedFile,
+  ChatMessage,
+  ThinkingStep,
+  ChatSession,
+} from "@/types/common";
+import ChatHistorySidebar from "@/components/chat/ChatHistorySidebar";
 
-const CHAT_SESSION_KEY = 'chatSession';
-
-interface UploadedFileMetadata { // For localStorage
-  name: string;
-  type: string;
-  size: number;
-}
-
-interface UploadedFile { // For component state, includes File object
-  id: string;
-  name: string;
-  content: string; // Content might be populated after processing for some types
-  type: string;
-  file: File; // The actual File object
-  processed?: boolean;
-  wordCount?: number;
-  error?: string;
-}
-
-interface ChatMessage {
-  id: string;
-  type: "user" | "ai";
-  content: string;
-  files?: UploadedFileMetadata[]; // Store metadata for localStorage
-  thinking?: ThinkingStep[]; // This seems to be for the older non-autonomous thinking display
-  thinkingStreamData?: ThinkingStreamData[]; // For autonomous and newer AI service thinking display
-  sources?: Source[];
-  timestamp: Date | string; // Allow string for JSON, convert back to Date on load
-  isAutonomous?: boolean;
-}
-
-interface ThinkingStep {
-  id: number;
-  type: string;
-  title: string;
-  content: string;
-  status: "processing" | "complete" | "pending";
-}
-
-interface ChatSession {
-  originalQuery?: string;
-  uploadedFileMetadata?: UploadedFileMetadata[];
-  isAutonomousMode?: boolean;
-  messages: ChatMessage[];
-  fullMindMapData?: MindMapData | null; // Optional: store mind map
-  // displayedMindMapData is probably too transient to store
-}
-
+const CHAT_HISTORY_KEY = 'novah_chat_history';
+const CHAT_SESSION_KEY = 'chatSession'; // Kept for potential cleanup of old data
 
 const INITIAL_DISPLAY_LEVEL = 3;
 
@@ -92,151 +48,145 @@ const ChatPage = () => {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]); // Holds File objects
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [currentThinking, setCurrentThinking] = useState<ThinkingStep[]>([]); // For older AI service
-  const [currentThinkingStreamData, setCurrentThinkingStreamData] = useState<ThinkingStreamData[]>([]);
+  const [currentThinking, setCurrentThinking] = useState<ThinkingStep[]>([]);
+  const [currentThinkingStreamData, setCurrentThinkingStreamData] = useState<ThinkingStreamData[]>([]); // For live display during generation
   const [showMindMap, setShowMindMap] = useState(false);
   const [fullMindMapData, setFullMindMapData] = useState<MindMapData | null>(null);
   const [displayedMindMapData, setDisplayedMindMapData] = useState<MindMapData | null>(null);
-  const [streamingContent, setStreamingContent] = useState("");
+  // streamingContent was not used, can be removed if not planned for other features
+  // const [streamingContent, setStreamingContent] = useState("");
   const [originalQuery, setOriginalQuery] = useState("");
   const [isAutonomousMode, setIsAutonomousMode] = useState(true);
-  const [viewingThinkingForMessageId, setViewingThinkingForMessageId] = useState<string | null>(null);
-  const [retrievedThinkingStream, setRetrievedThinkingStream] = useState<ThinkingStreamData[] | null>(null);
+
+  // Removed viewingThinkingForMessageId and retrievedThinkingStream states
+
+  const [currentSessionId, setCurrentSessionId] = useState<string>(uuidv4());
+  const [currentSessionName, setCurrentSessionName] = useState<string | null>(null);
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
 
   const saveChatSession = () => {
+    if (!currentSessionId) {
+      console.error("ChatPage: Cannot save session without a currentSessionId.");
+      return;
+    }
     try {
+      const historyRaw = localStorage.getItem(CHAT_HISTORY_KEY);
+      let history: ChatSession[] = historyRaw ? JSON.parse(historyRaw) : [];
+      history = history.filter(session => session && typeof session.id !== 'undefined');
+
+      let sessionNameToSave = currentSessionName;
+      if (!sessionNameToSave && messages.length > 0 && messages[0].type === 'user' && messages[0].content.trim()) {
+        sessionNameToSave = messages[0].content.substring(0, 50);
+      } else if (!sessionNameToSave) {
+        const firstMessageTimestamp = messages[0]?.timestamp;
+        sessionNameToSave = `Session ${new Date(firstMessageTimestamp || Date.now()).toLocaleDateString()} ${new Date(firstMessageTimestamp || Date.now()).toLocaleTimeString()}`;
+      }
+
       const sessionData: ChatSession = {
+        id: currentSessionId,
+        name: sessionNameToSave,
         originalQuery,
-        uploadedFileMetadata: uploadedFiles.map(f => ({ name: f.name, type: f.type, size: f.file.size })),
+        uploadedFileMetadata: uploadedFiles.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.file?.size || 0, status: "uploaded" })),
         isAutonomousMode,
-        messages,
+        messages, // This now includes thinkingStreamData within each AI message
         fullMindMapData,
       };
-      localStorage.setItem(CHAT_SESSION_KEY, JSON.stringify(sessionData));
-      console.log("ChatPage: Session saved to localStorage.");
+
+      const existingSessionIndex = history.findIndex(s => s.id === currentSessionId);
+      if (existingSessionIndex !== -1) {
+        history[existingSessionIndex] = sessionData;
+      } else {
+        history.push(sessionData);
+      }
+      setChatHistory([...history]); // Update state with a new array reference
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(history));
     } catch (error) {
-      console.error("ChatPage: Error saving chat session to localStorage:", error);
-      toast({ title: "Session Save Error", description: "Could not save your chat session. Storage might be full.", variant: "destructive"});
+      console.error("ChatPage: Error saving chat session to history in localStorage:", error);
+      toast({ title: "Session Save Error", description: "Could not save your chat session to history.", variant: "destructive"});
     }
   };
 
   useEffect(() => {
-    // Save session whenever key states change, but not on initial empty/loading states.
-    // The initial load from location.state will trigger its own save after processing.
-    if (messages.length > 0 && !isProcessing) {
+    if (messages.length > 0 && !isProcessing && currentSessionId) {
       saveChatSession();
     }
-  }, [messages, originalQuery, uploadedFiles, isAutonomousMode, fullMindMapData, isProcessing]);
+  }, [messages, originalQuery, uploadedFiles, isAutonomousMode, fullMindMapData, isProcessing, currentSessionId, currentSessionName]);
 
 
   useEffect(() => {
-    const savedSessionRaw = localStorage.getItem(CHAT_SESSION_KEY);
-    let initialQueryHandled = false;
+    const historyRaw = localStorage.getItem(CHAT_HISTORY_KEY);
+    let loadedSessions: ChatSession[] = [];
 
-    if (location.state) { // New navigation takes precedence
-        console.log("ChatPage: New navigation state present, clearing any old stored chat session and initializing.");
-        localStorage.removeItem(CHAT_SESSION_KEY);
+    if (historyRaw) {
+      try {
+        loadedSessions = JSON.parse(historyRaw).filter((s: ChatSession | null) => s && typeof s.id !== 'undefined');
+        setChatHistory(loadedSessions);
+      } catch (error) {
+        console.error("ChatPage: Error parsing chat history from localStorage:", error);
+        loadedSessions = [];
+        setChatHistory([]);
+      }
+    }
+
+    if (location.state?.query) { // Check if location.state and query exist
+        console.log("ChatPage: New navigation state present. Initializing as a new session.");
+        const newId = uuidv4();
+        setCurrentSessionId(newId);
+
         const { query, files, deepResearch, autonomousMode: navAutonomousMode } = location.state as any;
 
+        const newName = query ? query.substring(0, 50) : `New Session ${new Date().toLocaleTimeString()}`;
+        setCurrentSessionName(newName);
         setOriginalQuery(query || "");
         setIsAutonomousMode(navAutonomousMode === undefined ? true : navAutonomousMode);
 
-        // Files from navigation are now ProcessedFileInput[]
         const initialProcessedFilesFromNav: ProcessedFileInput[] = files || [];
-
-        // Set local UploadedFiles state to empty as these are for in-chat uploads
         setUploadedFiles([]);
+        setMessages([]);
+        setFullMindMapData(null);
+        setDisplayedMindMapData(null);
 
         handleInitialQuery(query, initialProcessedFilesFromNav, deepResearch);
-        initialQueryHandled = true; // Mark that initial query from navigation has been handled
-    } else if (savedSessionRaw) { // No navigation state, try to load from localStorage
-        try {
-            const savedSession: ChatSession = JSON.parse(savedSessionRaw);
-            console.log("ChatPage: Loading session from localStorage:", savedSession);
-
-            if (savedSession.messages && savedSession.messages.length > 0) {
-                setOriginalQuery(savedSession.originalQuery || "");
-                // File objects cannot be restored directly, only metadata.
-                // Users would need to re-upload if files are crucial for re-processing.
-                // For now, we'll just log that metadata was found.
-                if(savedSession.uploadedFileMetadata && savedSession.uploadedFileMetadata.length > 0) {
-                    console.log("ChatPage: Restored file metadata:", savedSession.uploadedFileMetadata);
-                    // If you want to represent these in UI, map them to a state without File objects:
-                    // setUploadedFiles(savedSession.uploadedFileMetadata.map(meta => ({ ...meta, id: uuidv4(), file: null }))); // No File object
-                }
-
-                setIsAutonomousMode(savedSession.isAutonomousMode === undefined ? true : savedSession.isAutonomousMode);
-
-                const restoredMessages = savedSession.messages.map(msg => ({
-                    ...msg,
-                    timestamp: new Date(msg.timestamp)
-                }));
-                setMessages(restoredMessages);
-
-                if (savedSession.fullMindMapData) {
-                    setFullMindMapData(savedSession.fullMindMapData);
-                    // Re-initialize displayedMindMapData from fullMindMapData
-                    const initialNodes = savedSession.fullMindMapData.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
-                    const initialNodeIds = new Set(initialNodes.map(node => node.id));
-                    const initialEdges = savedSession.fullMindMapData.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
-                    setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
-                }
-                toast({ title: "Session Restored", description: "Your previous chat session has been loaded." });
-            }
-        } catch (error) {
-            console.error("ChatPage: Error loading chat session from localStorage:", error);
-            localStorage.removeItem(CHAT_SESSION_KEY);
-        }
+    } else if (loadedSessions.length > 0) {
+        const mostRecentSession = loadedSessions[loadedSessions.length - 1];
+        handleSelectChat(mostRecentSession.id); // Use handleSelectChat to load the session
+    } else {
+        console.log("ChatPage: No saved history and no navigation state. Starting a fresh session.");
+        setCurrentSessionId(uuidv4()); // Ensure a new ID for a completely fresh start
+        setCurrentSessionName(null);
+        setMessages([]);
+        setOriginalQuery("");
+        setUploadedFiles([]);
+        setFullMindMapData(null);
+        setDisplayedMindMapData(null);
     }
-    // This effect should only run once on mount to decide initial state source
-  }, []); // Empty dependency array for mount only
+  }, [location.state]);
 
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+  }, [messages]); // Removed streamingContent as it's not used
 
-  const handleViewThinking = (messageId: string) => {
-    try {
-      const storedData = localStorage.getItem(`thinking_process_${messageId}`);
-      console.log("ChatPage: Retrieved thinking process from localStorage for message ID:", messageId, "Stored data:", storedData);
-      if (storedData) {
-        const parsedData = JSON.parse(storedData) as ThinkingStreamData[];
-        console.log("ChatPage: Parsed thinking process data:", parsedData);
-        setRetrievedThinkingStream(parsedData);
-        setViewingThinkingForMessageId(messageId);
-      } else {
-        toast({ title: "Not Found", description: "Thinking process data not found.", variant: "default" });
-      }
-    } catch (error) {
-      console.error("Failed to retrieve or parse thinking process:", error);
-      toast({ title: "Error", description: "Could not load thinking process.", variant: "destructive" });
-    }
-  };
+  // handleViewThinking function removed
 
   const handleInitialQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
-    // Adapt filesForDisplay: ProcessedFileInput doesn't have f.file.size. Default size to 0 or omit.
-    const filesForDisplay = currentFiles.map(f => ({ name: f.name, type: f.type || 'unknown', size: 0 }));
+    const filesForDisplay = currentFiles.map(f => ({ name: f.name, type: f.type || 'unknown', size: 0, id: uuidv4(), status: "uploaded" as "uploaded" }));
     const userMessage: ChatMessage = {
       id: uuidv4(), type: "user", content: query,
       files: filesForDisplay.length > 0 ? filesForDisplay : undefined,
       timestamp: new Date(),
     };
-    setMessages([userMessage]);
-    // originalQuery is already set by the caller (mount useEffect or handleSendMessage)
-    await processResearchQuery(query, currentFiles, deepResearch); // Pass ProcessedFileInput[]
+    setMessages([userMessage]); // Set only the user message, AI response will be added later
+    await processResearchQuery(query, currentFiles, deepResearch);
   };
 
   const processResearchQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
     setIsProcessing(true);
-    setStreamingContent("");
-    setCurrentThinking([]);
-    setCurrentThinkingStreamData([]);
-    // Do not reset mind map here if we want to build upon it across queries in a session
-    // setFullMindMapData(null);
-    // setDisplayedMindMapData(null);
+    setCurrentThinking([]); // For older thinking steps, if any
+    const liveThinkingStreamData: ThinkingStreamData[] = [];
+    setCurrentThinkingStreamData([]); // Clear live display for new query
 
     const processAndSetMindMapData = (mindMap: MindMapData) => {
       setFullMindMapData(mindMap);
@@ -247,74 +197,76 @@ const ChatPage = () => {
     };
 
     try {
-      // const fileObjects: File[] = currentFiles.map(f => f.file).filter(Boolean); // This line is no longer needed as currentFiles are ProcessedFileInput[]
       const researchMode = deepResearch ? "Deep" : "Normal";
+      const onThinkingDataCallback = (streamData: ThinkingStreamData) => {
+        liveThinkingStreamData.push(streamData);
+        setCurrentThinkingStreamData([...liveThinkingStreamData]);
+      };
 
       if (isAutonomousMode) {
-        // Pass currentFiles (ProcessedFileInput[]) directly to conductResearch
         await autonomousResearchAgent.conductResearch(query, currentFiles, researchMode, {
-            onThinkingData: (streamData) => setCurrentThinkingStreamData((prev) => [...prev, streamData]),
+            onThinkingData: onThinkingDataCallback,
             onFinalAnswer: async (report) => {
-              const aiMessageId = uuidv4();
-              const thinkingForStorage = [...currentThinkingStreamData]; // Capture current stream
               const aiMessage: ChatMessage = {
-                id: aiMessageId, type: "ai", content: report.content,
-                thinkingStreamData: thinkingForStorage, // Store the captured stream with message
+                id: uuidv4(), type: "ai", content: report.content,
+                thinkingStreamData: [...liveThinkingStreamData],
                 sources: report.sources, timestamp: new Date(), isAutonomous: true,
               };
               setMessages((prev) => [...prev, aiMessage]);
-
               if (mindMapService) {
                 const mindMap = await mindMapService.generateMindMap(report.content, originalQuery || query, 10);
                 if (mindMap) processAndSetMindMapData(mindMap);
               }
-
-              if (thinkingForStorage.length > 0) {
-                console.log("ChatPage: Saving thinking process for autonomous message ID:", aiMessageId, "Data points:", thinkingForStorage.length);
-                localStorage.setItem(`thinking_process_${aiMessageId}`, JSON.stringify(thinkingForStorage));
-              }
-              setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
+              // No more localStorage for thinking_process
+              setCurrentThinkingStreamData([]); setIsProcessing(false);
             },
-            onError: (error) => { /* ... */ setIsProcessing(false); },
+            onError: (error) => { setIsProcessing(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
           }
         );
-      } else { // Non-autonomous (AIService)
+      } else {
         const aiCallbacks: AIServiceCallbacks = {
-          onThinkingUpdate: (data) => setCurrentThinkingStreamData((prev) => [...prev, data]),
+          onThinkingUpdate: onThinkingDataCallback,
           onProgress: (stage, progress) => console.log(`Research progress: ${stage} (${progress}%)`),
-          onError: (error) => { /* ... */ setIsProcessing(false); setStreamingContent("");},
+          onError: (error) => { setIsProcessing(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
           onComplete: (response) => {
-            const aiMessageId = uuidv4();
-            const thinkingForStorage = [...currentThinkingStreamData, ...(response.thinkingProcess || [])]; // Combine if any stream before structured
             const aiMessage: ChatMessage = {
-              id: aiMessageId, type: "ai", content: response.finalReport.content,
-              thinkingStreamData: thinkingForStorage, sources: response.finalReport.sources,
+              id: uuidv4(), type: "ai", content: response.finalReport.content,
+              thinkingStreamData: [...liveThinkingStreamData, ...(response.thinkingProcess || [])],
+              sources: response.finalReport.sources,
               timestamp: new Date(), isAutonomous: false,
             };
             setMessages((prev) => [...prev, aiMessage]);
             if (response.mindMap) processAndSetMindMapData(response.mindMap);
-
-            if (thinkingForStorage.length > 0) {
-              console.log("ChatPage: Saving thinking process for AIService message ID:", aiMessageId, "Data points:", thinkingForStorage.length);
-              localStorage.setItem(`thinking_process_${aiMessageId}`, JSON.stringify(thinkingForStorage));
-            }
-            setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false); setStreamingContent("");
+            // No more localStorage for thinking_process
+            setCurrentThinkingStreamData([]); setIsProcessing(false);
           },
         };
-        // If aiService.processResearch is used with files, it would need refactoring
-        // to handle ProcessedFileInput[] or a different way to get File objects if essential.
-        // For now, focusing on autonomousResearchAgent path.
-        await aiService.processResearch({ query, files: [], researchMode }, aiCallbacks); // Passing empty array for files to aiService for now
+        await aiService.processResearch({ query, files: [], researchMode }, aiCallbacks);
       }
-    } catch (error: any) { /* ... */ setIsProcessing(false); setStreamingContent(""); }
+    } catch (error: any) { setIsProcessing(false); toast({title: "Processing Error", description: error.message, variant: "destructive"});}
   };
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() && uploadedFiles.length === 0) return;
-    const currentQuery = newMessage; // Capture before reset
-    const currentFiles = [...uploadedFiles]; // Capture before reset
+    const currentQuery = newMessage;
+    const currentUiFiles = [...uploadedFiles];
 
-    const filesForDisplay = currentFiles.map(f => ({ name: f.name, type: f.type || 'unknown', size: f.file.size }));
+    const processedFilesForAgent: ProcessedFileInput[] = await Promise.all(
+      currentUiFiles.map(async (uiFile) => {
+        if (uiFile.file) {
+          try {
+            const content = await fileProcessingService.readFileAsText(uiFile.file);
+            return { name: uiFile.name, content, type: uiFile.type };
+          } catch (err) {
+            toast({title: "File Read Error", description: `Could not read ${uiFile.name}.`, variant: "destructive"});
+            return { name: uiFile.name, content: "", type: uiFile.type };
+          }
+        }
+        return { name: uiFile.name, content: uiFile.content || "", type: uiFile.type };
+      })
+    );
+
+    const filesForDisplay = currentUiFiles.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.file?.size || 0, status: "uploaded" as "uploaded" }));
     const userMessage: ChatMessage = {
       id: uuidv4(), type: "user", content: currentQuery,
       files: filesForDisplay.length > 0 ? filesForDisplay : undefined, timestamp: new Date(),
@@ -323,55 +275,44 @@ const ChatPage = () => {
     setNewMessage("");
     setUploadedFiles([]);
     setIsProcessing(true);
-    // For follow-ups, originalQuery might be the very first query of the session or this new one.
-    // If chat is continuous, originalQuery should persist from the first message.
-    // If each follow-up should be "new" for mind map context, then update it:
-    // setOriginalQuery(currentQuery);
+    const liveThinkingStreamData: ThinkingStreamData[] = []; // For this specific follow-up
+    setCurrentThinkingStreamData([]); // Clear live display
 
     try {
       const lastAiMessage = messages.filter((m) => m.type === "ai").pop();
-      if (lastAiMessage && !isAutonomousMode) { // Only use AIService follow-up if not in autonomous mode
+      if (lastAiMessage && !isAutonomousMode) {
         const contextReport: FinalReport = {
           content: lastAiMessage.content, sources: lastAiMessage.sources || [],
-          wordCount: lastAiMessage.content.split(" ").length, // Approximate
+          wordCount: lastAiMessage.content.split(" ").length,
         };
         const followUpCallbacks: AIServiceCallbacks = {
-          onThinkingUpdate: (data) => setCurrentThinkingStreamData((prev) => [...prev, data]),
+          onThinkingUpdate: (data) => { liveThinkingStreamData.push(data); setCurrentThinkingStreamData([...liveThinkingStreamData]); },
           onProgress: (stage, progress) => console.log(`Follow-up progress: ${stage} (${progress}%)`),
-          onError: (error) => { /* ... */ setIsProcessing(false);},
+          onError: (error) => { setIsProcessing(false); toast({title: "Follow-up Error", description: error.message, variant: "destructive"});},
           onComplete: (response) => {
-            const aiMessageId = uuidv4();
-            const thinkingForStorage = [...currentThinkingStreamData, ...(response.thinkingProcess || [])];
             const aiMessage: ChatMessage = {
-              id: aiMessageId, type: "ai", content: response.finalReport.content,
-              thinkingStreamData: thinkingForStorage, sources: response.finalReport.sources,
+              id: uuidv4(), type: "ai", content: response.finalReport.content,
+              thinkingStreamData: [...liveThinkingStreamData, ...(response.thinkingProcess || [])],
+              sources: response.finalReport.sources,
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, aiMessage]);
             if (response.mindMap) processAndSetMindMapData(response.mindMap);
-
-            if (thinkingForStorage.length > 0) {
-              console.log("ChatPage: Saving thinking process for follow-up message ID:", aiMessageId, "Data points:", thinkingForStorage.length);
-              localStorage.setItem(`thinking_process_${aiMessageId}`, JSON.stringify(thinkingForStorage));
-            }
-            setCurrentThinking([]); setCurrentThinkingStreamData([]); setIsProcessing(false);
+            // No more localStorage for thinking_process
+            setCurrentThinkingStreamData([]); setIsProcessing(false);
           },
         };
         await aiService.processFollowUp(currentQuery, contextReport, followUpCallbacks);
-      } else { // If autonomous or no prior AI message, treat as a new research query
-        await handleInitialQuery(currentQuery, currentFiles, false); // Default to 'Normal' research for simplicity
+      } else {
+        await handleInitialQuery(currentQuery, processedFilesForAgent, false);
       }
-    } catch (error: any) { /* ... */ setIsProcessing(false); }
+    } catch (error: any) { setIsProcessing(false); toast({title: "Message Sending Error", description: error.message, variant: "destructive"});}
   };
 
   const handleNewChat = () => {
-    localStorage.removeItem(CHAT_SESSION_KEY);
-    // Also clear any thinking processes for individual messages
-    messages.forEach(msg => {
-        if (msg.type === 'ai') {
-            localStorage.removeItem(`thinking_process_${msg.id}`);
-        }
-    });
+    const newId = uuidv4();
+    setCurrentSessionId(newId);
+    setCurrentSessionName(null);
     setMessages([]);
     setOriginalQuery("");
     setUploadedFiles([]);
@@ -379,48 +320,135 @@ const ChatPage = () => {
     setDisplayedMindMapData(null);
     setCurrentThinking([]);
     setCurrentThinkingStreamData([]);
-    setStreamingContent("");
     setIsProcessing(false);
     setShowMindMap(false);
-    // navigate("/chat", { replace: true }); // Optional: clear location.state by navigating
-    toast({ title: "New Chat Started", description: "Previous session and mind map cleared." });
+    toast({ title: "New Chat Started", description: "Ready for a new conversation." });
   };
 
-
-  // File upload handler for ChatInput (simplified as it doesn't auto-process here)
   const handleChatFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files) return;
     const fileArray = Array.from(files);
-    // Basic validation, can be expanded
-    if (uploadedFiles.length + fileArray.length > 2) {
-        toast({ title: "File Limit", description: "Max 2 files for follow-up.", variant: "destructive" });
+    if (uploadedFiles.length + fileArray.length > 5) {
+        toast({ title: "File Limit", description: "Max 5 files.", variant: "destructive" });
         return;
     }
     const newUiFiles: UploadedFile[] = fileArray.map(f => ({
-        id: uuidv4(), name: f.name, type: f.type, file: f, content: "" // Content not read here
+        id: uuidv4(), name: f.name, type: f.type, file: f, content: ""
     }));
     setUploadedFiles(prev => [...prev, ...newUiFiles]);
   };
 
+  const handleSelectChat = (sessionId: string) => {
+    const sessionToLoad = chatHistory.find(s => s.id === sessionId);
+    if (sessionToLoad) {
+      setCurrentSessionId(sessionToLoad.id);
+      setCurrentSessionName(sessionToLoad.name || null);
+      // Ensure messages have Date objects for timestamps
+      setMessages(sessionToLoad.messages.map(msg => ({ ...msg, timestamp: new Date(msg.timestamp) })));
+      setOriginalQuery(sessionToLoad.originalQuery || "");
 
-  const closeThinkingProcessDialog = () => { /* ... */ };
-  const generateAndShowMindMap = async () => { /* ... */ };
-  // Existing functions: handleViewThinking, handleNodeExpand, handleNodeReveal, processResearchQuery, etc.
-  // These should largely remain the same, but ensure they use the state variables correctly.
+      if (sessionToLoad.uploadedFileMetadata && sessionToLoad.uploadedFileMetadata.length > 0) {
+        setUploadedFiles(sessionToLoad.uploadedFileMetadata.map(meta => ({
+          id: meta.id || uuidv4(), name: meta.name, type: meta.type,
+          size: meta.size, status: meta.status, content: "",
+          file: null as any, processed: true,
+        })));
+      } else {
+        setUploadedFiles([]);
+      }
+
+      setIsAutonomousMode(sessionToLoad.isAutonomousMode === undefined ? true : sessionToLoad.isAutonomousMode);
+
+      if (sessionToLoad.fullMindMapData) {
+        setFullMindMapData(sessionToLoad.fullMindMapData);
+        const initialNodes = sessionToLoad.fullMindMapData.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
+        const initialNodeIds = new Set(initialNodes.map(node => node.id));
+        const initialEdges = sessionToLoad.fullMindMapData.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
+        setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+      } else {
+        setFullMindMapData(null);
+        setDisplayedMindMapData(null);
+      }
+      setIsProcessing(false); setCurrentThinking([]); setCurrentThinkingStreamData([]);
+      setShowMindMap(false);
+      toast({ title: "Chat Loaded", description: `Switched to session: ${sessionToLoad.name || sessionToLoad.id}` });
+    } else {
+      toast({ title: "Error", description: "Could not load the selected chat session.", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteChat = (sessionId: string) => {
+    const updatedHistory = chatHistory.filter(s => s.id !== sessionId);
+    setChatHistory(updatedHistory);
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(updatedHistory));
+    // No more localStorage thinking_process cleanup for deleted session messages
+    toast({ title: "Chat Deleted", description: `Session removed.`, variant: "default" });
+    if (currentSessionId === sessionId) {
+      if (updatedHistory.length > 0) {
+        handleSelectChat(updatedHistory[updatedHistory.length - 1].id);
+      } else {
+        handleNewChat();
+      }
+    }
+  };
+
+  // Removed closeThinkingProcessDialog as the dialog and its state vars are gone
+  const generateAndShowMindMap = async () => {
+    if (isProcessing || !messages.length) return;
+    setIsProcessing(true);
+    const lastMessageContent = messages.find(m => m.type === 'ai')?.content || messages[messages.length-1].content; // Prefer AI message
+    try {
+        const mindMap = await mindMapService.generateMindMap(lastMessageContent, originalQuery || messages[0]?.content || "Chat Topic", 10);
+        if (mindMap) {
+            setFullMindMapData(mindMap);
+            const initialNodes = mindMap.nodes.filter(node => node.data.level <= INITIAL_DISPLAY_LEVEL);
+            const initialNodeIds = new Set(initialNodes.map(node => node.id));
+            const initialEdges = mindMap.edges.filter(edge => initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target));
+            setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+            setShowMindMap(true);
+        } else {
+          toast({title: "Mind Map Generation", description: "Could not generate a mind map for this content.", variant: "default"});
+        }
+    } catch (err) {
+        toast({title: "Mind Map Error", description: (err as Error).message, variant: "destructive"});
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const uuidv4 = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  const handleNodeExpand = (nodeId: string) => { console.log("Expand node:", nodeId); /* Placeholder */ };
+  const handleNodeReveal = (node: any) => { console.log("Reveal node:", node); /* Placeholder */ };
 
   return (
-    <div className="min-h-screen relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="sticky top-0 z-40 bg-slate-800/40 border-b border-slate-700/50 backdrop-blur-sm p-4">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>Novah</h1>
-          <div className="flex items-center space-x-2"> {/* Reduced space for more buttons */}
-            <Button onClick={handleNewChat} variant="outline" size="sm" className="text-slate-300 border-slate-600 hover:bg-slate-700 hover:text-white">
-                <FilePlus className="h-4 w-4 mr-2" /> New Chat
-            </Button>
-            {(messages.some(m => m.type === 'ai')) && !showMindMap && (
-              <Button onClick={generateAndShowMindMap} className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white" disabled={isProcessing} size="sm">
-                <Map className="h-4 w-4 mr-2" />
+    <div className="flex h-screen overflow-hidden relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <div className="w-72 flex-shrink-0 bg-slate-850 h-full overflow-y-auto custom-scrollbar">
+        <ChatHistorySidebar
+          chatHistory={chatHistory}
+          currentSessionId={currentSessionId}
+          onSelectChat={handleSelectChat}
+          onNewChat={handleNewChat}
+          onDeleteChat={handleDeleteChat}
+        />
+      </div>
+
+      <div className="flex-1 flex flex-col h-screen overflow-y-hidden">
+        <div className="sticky top-0 z-30 bg-slate-800/60 border-b border-slate-700/50 backdrop-blur-md p-4">
+          <div className="flex items-center justify-between max-w-7xl mx-auto">
+            <h1 className="text-3xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent cursor-pointer hover:scale-105 transition-transform" onClick={() => navigate("/")}>
+              Novah {currentSessionName && <span className="text-sm text-slate-400 ml-2 font-normal">({currentSessionName})</span>}
+            </h1>
+            <div className="flex items-center space-x-2">
+              {(messages.some(m => m.type === 'ai')) && !showMindMap && (
+                <Button onClick={generateAndShowMindMap} className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white" disabled={isProcessing} size="sm">
+                  <Map className="h-4 w-4 mr-2" />
                 {fullMindMapData ? "View Mind Map" : "Generate Mind Map"}
               </Button>
             )}
@@ -432,94 +460,69 @@ const ChatPage = () => {
             )}
           </div>
         </div>
-      </div>
 
-      {/* Rest of the JSX (Chat container, MindMap container, Dialog) remains similar */}
-      <div className="flex h-[calc(100vh-80px)] relative">
-        <div className={`chat-container ${showMindMap ? "w-1/2" : "w-full"} flex flex-col`}>
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="max-w-4xl mx-auto space-y-6">
-              {messages.map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  onViewThinking={handleViewThinking}
-                  hasThinkingData={(messageId) => !!localStorage.getItem(`thinking_process_${messageId}`)}
-                />
-              ))}
-              {isProcessing && messages.length > 0 && messages[messages.length-1].type === 'user' && (
-                <div className="flex justify-start">
-                  <div className="max-w-3xl">
-                    {isAutonomousMode ? (
-                      <AutonomousThinkingProcess streamData={currentThinkingStreamData} isAutonomous={true} isVisible={true} />
-                    ) : (
-                      <ThinkingProcess steps={currentThinking} isVisible={true} /> // Older non-autonomous thinking steps
-                    )}
-                    {/* Removed streamingContent display here as it's part of AI message bubble now or handled internally */}
+        <div className={`flex flex-1 overflow-y-hidden ${showMindMap ? "flex-row" : "flex-col"}`}>
+          <div className={`flex flex-col ${showMindMap ? "w-1/2" : "w-full"} h-full`}>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+              <div className="max-w-4xl mx-auto space-y-6">
+                {messages.map((message) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    // Removed onViewThinking and hasThinkingData props
+                  />
+                ))}
+                {isProcessing && messages.length > 0 && messages[messages.length-1].type === 'user' && (
+                  <div className="flex justify-start">
+                    <div className="max-w-3xl">
+                      {isAutonomousMode ? (
+                        <AutonomousThinkingProcess streamData={currentThinkingStreamData} isAutonomous={true} isVisible={true} />
+                      ) : (
+                        // currentThinking is for older, non-streamed thinking steps.
+                        // If currentThinking can be represented as ThinkingStreamData[], it could also use AutonomousThinkingProcess.
+                        // For now, keeping ThinkingProcess component for it if it's a different structure.
+                        currentThinking.length > 0 && <ThinkingProcess steps={currentThinking} isVisible={true} />
+                      )}
+                    </div>
                   </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+            <ChatInput
+              message={newMessage}
+              onMessageChange={setNewMessage}
+              onSendMessage={handleSendMessage}
+              onFileUpload={handleChatFileUpload}
+              uploadedFiles={uploadedFiles}
+              onRemoveFile={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
+              isProcessing={isProcessing}
+            />
+          </div>
+
+          {showMindMap && displayedMindMapData && (
+            <div className="mind-map-container w-1/2 border-l border-slate-700/50 h-full overflow-y-auto custom-scrollbar">
+              <div className="flex flex-col bg-slate-800/50 h-full">
+                <div className="p-4 border-b border-slate-700/50 flex items-center justify-between sticky top-0 bg-slate-800/70 backdrop-blur-sm z-10">
+                  <h3 className="text-white font-medium">Knowledge Map</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setShowMindMap(false)} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></Button>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
+                <div className="flex-1">
+                  <MindMap
+                    mindMapData={displayedMindMapData}
+                    onNodeExpand={handleNodeExpand}
+                    onNodeDoubleClick={handleNodeReveal}
+                    isLoading={isProcessing && !displayedMindMapData}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-          <ChatInput
-            message={newMessage}
-            onMessageChange={setNewMessage}
-            onSendMessage={handleSendMessage}
-            onFileUpload={handleChatFileUpload} // Use specific handler for ChatInput uploads
-            uploadedFiles={uploadedFiles}
-            onRemoveFile={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
-            isProcessing={isProcessing}
-          />
+          )}
         </div>
-
-        {showMindMap && displayedMindMapData && (
-          <div className="mind-map-container w-1/2 border-l border-slate-700/50">
-            <div className="h-full flex flex-col bg-slate-800/50">
-              <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
-                <h3 className="text-white font-medium">Research Mind Map</h3>
-                <Button variant="ghost" size="sm" onClick={() => setShowMindMap(false)} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></Button>
-              </div>
-              <div className="flex-1">
-                <MindMap
-                  mindMapData={displayedMindMapData}
-                  onNodeExpand={handleNodeExpand}
-                  onNodeDoubleClick={handleNodeReveal}
-                  isLoading={isProcessing && !displayedMindMapData}
-                />
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Dialog for thinking process removed */}
       </div>
-
-      <Dialog open={viewingThinkingForMessageId !== null} onOpenChange={(isOpen) => { if (!isOpen) closeThinkingProcessDialog(); }}>
-        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-3xl h-[80vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Retrieved AI Thinking Process</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto p-4 rounded-md bg-slate-850 custom-scrollbar">
-            {retrievedThinkingStream && retrievedThinkingStream.length > 0 ? (
-               // Assuming AutonomousThinkingProcess can also display stored ThinkingStreamData[]
-              <AutonomousThinkingProcess streamData={retrievedThinkingStream} isAutonomous={true} isVisible={true} />
-            ) : (
-              <p>No thinking process data to display or data is empty.</p>
-            )}
-          </div>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={closeThinkingProcessDialog} className="border-slate-600 hover:border-slate-500">Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
-// Helper function to generate unique IDs, if not already available
-const uuidv4 = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
 
 export default ChatPage;
