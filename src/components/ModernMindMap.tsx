@@ -142,9 +142,14 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
       setEdges(reactFlowEdges);
 
       // Fit view after a short delay to ensure nodes are rendered
-      setTimeout(() => fitView({ duration: 800 }), 100);
+      if (isFullscreen) {
+        setTimeout(() => fitView({ duration: 800, padding: 0.2 }), 150);
+      } else {
+        // Use a smaller padding for normal view for a tighter fit initially
+        setTimeout(() => fitView({ duration: 800, padding: 0.1 }), 100);
+      }
     }
-  }, [mindMapData, visibleLevels, setNodes, setEdges, fitView]);
+  }, [mindMapData, visibleLevels, setNodes, setEdges, fitView, isFullscreen]); // Added isFullscreen
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -259,6 +264,7 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <MiniMap
               className="!bg-gray-50 !border !border-gray-200 rounded-lg"
+              position="bottom-right" // Added position prop
               nodeColor={(node) => {
                 switch (node.data.level) {
                   case 1:
@@ -274,7 +280,10 @@ const MindMapComponent: React.FC<MindMapComponentProps> = ({
                 }
               }}
             />
-            <Controls className="!bg-white !border !border-gray-200 !rounded-lg" />
+            <Controls
+              className="!bg-white !border !border-gray-200 !rounded-lg"
+              position="bottom-left" // Added position prop
+            />
           </ReactFlow>
         </div>
       </CardContent>

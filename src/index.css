@@ -167,3 +167,57 @@
 ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(135deg, #7c3aed, #db2777);
 }
+
+/* Custom AI Response Content Styling */
+.ai-response-content p {
+  margin-bottom: 1em;
+}
+
+.ai-response-content pre {
+  background-color: #2d2d2d; /* Dark background */
+  color: #f8f8f2;           /* Light text */
+  padding: 1em;
+  border-radius: 0.5em;     /* Slightly more rounded */
+  overflow-x: auto;         /* Horizontal scroll for long lines */
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; /* Monospace font stack */
+  font-size: 0.9em;           /* Slightly smaller font size for code */
+  line-height: 1.4;         /* Adjust line height for readability */
+  margin-bottom: 1em; /* Added margin for spacing */
+}
+
+.ai-response-content code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  font-size: 0.9em;
+  /* For inline code, Tailwind prose often handles background and padding.
+     If specific overrides are needed, they can be added here.
+     e.g., background-color: #3a3a3a; color: #e0e0e0; padding: 0.2em 0.4em; border-radius: 0.3em;
+  */
+}
+
+.ai-response-content pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit; /* Inherit font-size from pre */
+}
+
+.ai-response-content table {
+  border-collapse: collapse;
+  width: auto; /* Or '100%' if full-width tables are desired and content allows */
+  margin-bottom: 1em;
+  border: 1px solid #555; /* Border for the table itself */
+}
+
+.ai-response-content th,
+.ai-response-content td {
+  border: 1px solid #555; /* Borders for cells */
+  padding: 0.6em 0.8em;   /* More padding */
+  text-align: left;
+}
+
+.ai-response-content th {
+  background-color: #3a3a3a; /* Darker background for headers */
+  color: #f0f0f0;           /* Light text for headers */
+  font-weight: bold;
+}
