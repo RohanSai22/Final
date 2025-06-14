@@ -1,36 +1,50 @@
 // =====================================================================================
-// MIND MAP SERVICE - COMPLETE IMPLEMENTATION
-// Advanced mind map generation with React Flow integration
+// NOVAH AI MIND MAP SERVICE - ADVANCED LAYERED IMPLEMENTATION
+// Advanced mind map generation with layered architecture for chat sessions
 // =====================================================================================
 
-import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
 import dagre from "dagre";
 import { v4 as uuidv4 } from 'uuid';
 
 // =====================================================================================
-// ATOMIC KNOWLEDGE INTERFACES
+// NOVAH AI MIND MAP INTERFACES
 // =====================================================================================
-interface AtomicEntity {
+
+export interface FileData {
   id: string;
   name: string;
-  description: string;
-  type: 'Concept' | 'Person' | 'Organization' | 'Location' | 'Event' | 'Other';
+  content: string;
+  type: string;
+  uploadedAt: string;
+  extractedData?: any;
 }
 
-interface AtomicRelationship {
-  sourceName?: string;
-  targetName?: string;
-  sourceId?: string;
-  targetId?: string;
-  label: string;
+export interface QueryData {
+  id: string;
+  query: string;
+  answer?: string;
+  thinking?: string;
+  timestamp: string;
 }
 
-interface AtomicGraph {
-  entities: AtomicEntity[];
-  relationships: AtomicRelationship[];
+export interface InsightNode {
+  id: string;
+  type: 'theme' | 'concept' | 'insight' | 'evidence' | 'reasoning' | 'conclusion';
+  title: string;
+  content: string;
+  confidence: number;
+  metadata?: Record<string, any>;
 }
-// =====================================================================================
+
+export interface AnalysisLayer {
+  id: string;
+  level: number;
+  title: string;
+  insights: InsightNode[];
+  connections: string[]; // IDs of connected nodes
+}
 
 
 export interface MindMapNode {

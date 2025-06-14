@@ -81,51 +81,21 @@ const MessageBubble = ({ message, hasThinkingData, onViewThinking }: MessageBubb
       </div>
     );
   }
+
   return (
     <div className="flex justify-start">
       <Card className="max-w-3xl bg-slate-800/50 text-white border border-slate-700/50 backdrop-blur-sm p-6 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300">
         <div className="space-y-4">
-          {/* AI Thinking Process - Collapsible */}
-          {message.type === 'ai' && (message.thinkingStreamData || hasThinkingData(message.id)) && (
-            <div className="border border-slate-700/50 rounded-xl p-4 bg-slate-900/30">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full flex items-center justify-between text-slate-300 hover:text-white hover:bg-slate-700/30 p-3"
-                onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
-              >
-                <div className="flex items-center">
-                  <Brain className="h-4 w-4 mr-2" />
-                  <span className="font-medium">AI Thinking Process</span>
-                </div>
-                {isThinkingExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </Button>
-              
-              {isThinkingExpanded && (
-                <div className="mt-4 border-t border-slate-700/50 pt-4">
-                  {message.thinkingStreamData ? (
-                    <AutonomousThinkingProcess
-                      streamData={message.thinkingStreamData}
-                      isAutonomous={true}
-                      isVisible={true}
-                    />
-                  ) : hasThinkingData(message.id) ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-500"
-                      onClick={() => onViewThinking(message.id)}
-                    >
-                      <Brain className="h-3.5 w-3.5 mr-2" />
-                      Load Detailed Thinking
-                    </Button>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          )}
+          {message.isAutonomous && message.thinkingStreamData ? (
+            <AutonomousThinkingProcess
+              streamData={message.thinkingStreamData}
+              isAutonomous={true}
+              isVisible={true}
+            />
+          ) : message.thinking ? (
+            <ThinkingProcess steps={message.thinking} isVisible={true} />
+          ) : null}
 
-          {/* Main AI Response Content */}
           {message.isAutonomous ? (
             <FinalReportDisplay
               content={message.content}
@@ -135,9 +105,9 @@ const MessageBubble = ({ message, hasThinkingData, onViewThinking }: MessageBubb
             />
           ) : (
             <>
-              <div className="prose prose-invert max-w-none ai-response-content" style={{ width: '100%', overflowWrap: 'break-word' }}>
+              <div className="prose prose-invert max-w-none ai-response-content" style={{ width: '100%', overflowWrap: 'break-word' }}> {/* Added class and inline styles */}
                 <StreamingText content={message.content} />
-              </div>
+              </div>{" "}
               {message.sources && (
                 <div className="border-t border-slate-700/50 pt-4 mt-6">
                   <h4 className="font-medium text-cyan-400 mb-3">Sources:</h4>
@@ -148,7 +118,7 @@ const MessageBubble = ({ message, hasThinkingData, onViewThinking }: MessageBubb
                           href={source.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-slate-300 hover:text-cyan-400 transition-colors hover:underline break-all"
+                           className="text-slate-300 hover:text-cyan-400 transition-colors hover:underline break-all"
                         >
                           {source.title}
                         </a>
@@ -161,6 +131,20 @@ const MessageBubble = ({ message, hasThinkingData, onViewThinking }: MessageBubb
                 </div>
               )}
             </>
+          )}
+          {/* View Thinking Button for AI messages */}
+          {message.type === 'ai' && hasThinkingData(message.id) && (
+            <div className="flex justify-end mt-4 pt-4 border-t border-slate-700/50">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-500"
+                onClick={() => onViewThinking(message.id)}
+              >
+                <Brain className="h-3.5 w-3.5 mr-2" />
+                View Thinking
+              </Button>
+            </div>
           )}
         </div>
       </Card>

@@ -38,26 +38,26 @@ const HomePage = () => {
     try {
       const session = chatSessionStorage.loadSession(sessionId);
       if (session) {
-        navigate("/chat", {
-          state: {
+        navigate('/chat', { 
+          state: { 
             sessionId,
-            loadExisting: true,
-          },
+            loadExisting: true 
+          } 
         });
       }
     } catch (error) {
-      console.error("Error loading session:", error);
+      console.error('Error loading session:', error);
       toast({
-        title: "Session Load Error",
-        description: "Could not load the selected session",
-        variant: "destructive",
+        title: 'Session Load Error',
+        description: 'Could not load the selected session',
+        variant: 'destructive',
       });
     }
   };
 
   const handleNewChat = () => {
     const newSessionId = chatSessionStorage.createNewSession();
-    navigate("/chat");
+    navigate('/chat');
   };
 
   const handleToggleSidebar = () => {
@@ -173,17 +173,11 @@ const HomePage = () => {
     setIsLoading(true);
 
     const processedFilesForChat = uploadedFiles
-      .filter(
-        (uf) =>
-          uf.processed &&
-          uf.content &&
-          uf.content.trim().length > 0 &&
-          !uf.error
-      )
-      .map((uf) => ({
+      .filter(uf => uf.processed && uf.content && uf.content.trim().length > 0 && !uf.error)
+      .map(uf => ({
         name: uf.name,
         content: uf.content,
-        type: uf.type,
+        type: uf.type
       }));
 
     navigate("/chat", {
@@ -206,7 +200,7 @@ const HomePage = () => {
         onSessionSelect={handleSessionSelect}
         onNewChat={handleNewChat}
       />
-
+      
       {/* Animated background particles */}
       <div className="absolute inset-0">
         {[...Array(50)].map((_, i) => (
@@ -236,111 +230,106 @@ const HomePage = () => {
           </Button>
           <div></div> {/* Spacer for centered content */}
         </div>
-
+        
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="w-full max-w-6xl space-y-16">
-            {/* Hero Section */}
-            <div className="text-center space-y-8">
-              <div className="relative">
-                <h1 className="text-7xl md:text-8xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent animate-glow mb-6">
-                  Novah
-                </h1>
-                <p className="text-xl md:text-2xl text-slate-300 mb-8 font-light">
-                  Advanced AI Research Assistant
-                </p>
-              </div>
+          {/* Hero Section */}
+          <div className="text-center space-y-8">
+            <div className="relative">
+              <h1 className="text-7xl md:text-8xl font-extralight bg-gradient-to-r from-red-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent animate-glow mb-6">
+                Novah
+              </h1>
+              <p className="text-xl md:text-2xl text-slate-300 mb-8 font-light">
+                Advanced AI Research Assistant
+              </p>
             </div>
+          </div>
 
-            {/* Main Input Card */}
-            <Card className="bg-slate-800/40 border border-slate-700/50 backdrop-blur-sm p-8 shadow-2xl max-w-4xl mx-auto">
-              <div className="space-y-6">
-                <div className="relative">
-                  <Textarea
-                    placeholder="Enter your research query..."
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="min-h-32 bg-slate-700/30 border-2 border-slate-600/50 text-white placeholder-slate-400 text-lg resize-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 rounded-xl backdrop-blur-sm"
-                    maxLength={1000}
-                  />
-                  <div className="absolute bottom-3 right-3 text-xs text-slate-500">
-                    {query.length}/1000
-                  </div>
+          {/* Main Input Card */}
+          <Card className="bg-slate-800/40 border border-slate-700/50 backdrop-blur-sm p-8 shadow-2xl max-w-4xl mx-auto">
+            <div className="space-y-6">
+              <div className="relative">
+                <Textarea
+                  placeholder="Enter your research query..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="min-h-32 bg-slate-700/30 border-2 border-slate-600/50 text-white placeholder-slate-400 text-lg resize-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 rounded-xl backdrop-blur-sm"
+                  maxLength={1000}
+                />
+                <div className="absolute bottom-3 right-3 text-xs text-slate-500">
+                  {query.length}/1000
                 </div>
+              </div>
 
-                <div className="flex items-center justify-between flex-wrap gap-6">
-                  <div className="flex items-center space-x-8">
-                    <div className="flex items-center space-x-3">
-                      <Switch
-                        checked={deepResearch}
-                        onCheckedChange={setDeepResearch}
-                        className="data-[state=checked]:bg-gradient-to-r data-[state=checked]:from-emerald-500 data-[state=checked]:to-cyan-500"
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-white font-medium">
-                          {deepResearch ? "Deep Research" : "Normal Research"}
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          {deepResearch
-                            ? "800 words, 120-140+ sources"
-                            : "400 words, 20-30 sources"}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Removed wrapping label, Button now handles click */}
-                    <input
-                      type="file"
-                      id="fileUploadInput" // id can be kept or removed, ref is primary
-                      ref={fileInputRef} // Assigned ref
-                      multiple
-                      accept=".txt,.pdf,.doc,.docx"
-                      onChange={handleFileUpload}
-                      className="hidden"
+              <div className="flex items-center justify-between flex-wrap gap-6">
+                <div className="flex items-center space-x-8">
+                  <div className="flex items-center space-x-3">
+                    <Switch
+                      checked={deepResearch}
+                      onCheckedChange={setDeepResearch}
+                      className="data-[state=checked]:bg-gradient-to-r data-[state=checked]:from-emerald-500 data-[state=checked]:to-cyan-500"
                     />
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        console.log(
-                          "HomePage: Upload Files button clicked, attempting to trigger file input."
-                        );
-                        fileInputRef.current?.click();
-                      }} // Added console.log
-                      className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-cyan-500/50 transition-all duration-300 group-hover:scale-105"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Files
-                    </Button>
+                    <div className="flex flex-col">
+                      <span className="text-white font-medium">
+                        {deepResearch ? "Deep Research" : "Normal Research"}
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {deepResearch
+                          ? "800 words, 120-140+ sources"
+                          : "400 words, 20-30 sources"}
+                      </span>
+                    </div>
                   </div>
-
+                  {/* Removed wrapping label, Button now handles click */}
+                  <input
+                    type="file"
+                    id="fileUploadInput" // id can be kept or removed, ref is primary
+                    ref={fileInputRef} // Assigned ref
+                    multiple
+                    accept=".txt,.pdf,.doc,.docx"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
                   <Button
-                    onClick={handleSubmit}
-                    disabled={isLoading}
-                    className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-cyan-500/25 transform hover:scale-105 transition-all duration-300"
+                    variant="outline"
+                    onClick={() => { console.log("HomePage: Upload Files button clicked, attempting to trigger file input."); fileInputRef.current?.click(); }} // Added console.log
+                    className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-cyan-500/50 transition-all duration-300 group-hover:scale-105"
                   >
-                    {isLoading ? (
-                      <div className="flex items-center">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                        Processing...
-                      </div>
-                    ) : (
-                      <>
-                        <Sparkles className="h-4 w-4 mr-2" />
-                        Start Research
-                        <ArrowRight className="h-4 w-4 ml-2" />
-                      </>
-                    )}
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Files
                   </Button>
                 </div>
+
+                <Button
+                  onClick={handleSubmit}
+                  disabled={isLoading}
+                  className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-cyan-500/25 transform hover:scale-105 transition-all duration-300"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                      Processing...
+                    </div>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Start Research
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </>
+                  )}
+                </Button>
               </div>
-            </Card>
+            </div>
+          </Card>
 
-            {/* Uploaded Files */}
-            <FileUploadArea
-              uploadedFiles={uploadedFiles}
-              onFilesChange={setUploadedFiles}
-            />
+          {/* Uploaded Files */}
+          <FileUploadArea
+            uploadedFiles={uploadedFiles}
+            onFilesChange={setUploadedFiles}
+          />
 
-            {/* Suggestion Cards */}
-            <SuggestionCards onQuerySelect={setQuery} />
+          {/* Suggestion Cards */}
+          <SuggestionCards onQuerySelect={setQuery} />
           </div>
         </div>
       </div>

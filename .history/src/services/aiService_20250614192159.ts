@@ -5,10 +5,7 @@
 
 import { autonomousResearchAgent } from "./autonomousResearchAgent";
 import { fileProcessingService } from "./fileProcessingService";
-import {
-  perfectMindMapService,
-  type PerfectMindMapData,
-} from "./perfectMindMapService";
+import { mindMapService, type MindMapData } from "./mindMapService";
 import type {
   ThinkingStreamData,
   Source,
@@ -60,6 +57,7 @@ class AIService {
     this.isProcessing = true;
     const thinkingProcess: ThinkingStreamData[] = [];
     let finalReport: FinalReport | null = null;
+    let mindMapData: MindMapData | null = null;
 
     try {
       callbacks.onProgress("Initializing", 0);
@@ -131,15 +129,13 @@ class AIService {
       if (request.files && request.files.length > 0) {
         callbacks.onProgress("Processing Files", 5);
         try {
-          const fileResults = await fileProcessingService.processFiles(
-            request.files
-          );
+          const fileResults = await fileProcessingService.processFiles(request.files);
           processedFiles = fileResults
-            .filter((result) => result.success)
-            .map((result) => ({
+            .filter(result => result.success)
+            .map(result => ({
               name: result.metadata.fileName,
               content: result.content,
-              type: result.metadata.fileType,
+              type: result.metadata.fileType
             }));
         } catch (fileError) {
           console.error("File processing error:", fileError);
@@ -241,13 +237,11 @@ ${context.sources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n")}`;
    */
   async expandMindMapNode(
     nodeId: string,
-    currentMindMap: PerfectMindMapData,
+    currentMindMap: MindMapData,
     context: string
   ): Promise<{ newNodes: any[]; newEdges: any[] }> {
     try {
-      // For now, return empty result since the perfect mind map handles expansion internally
-      console.log("Mind map expansion requested for node:", nodeId);
-      return { newNodes: [], newEdges: [] };
+      return await mindMapService.expandNode(nodeId, currentMindMap, context);
     } catch (error) {
       console.error("Mind map expansion error:", error);
       return { newNodes: [], newEdges: [] };
@@ -353,4 +347,4 @@ export type {
   ProcessedFileInput,
 } from "./autonomousResearchAgent";
 
-export type { PerfectMindMapData } from "./perfectMindMapService";
+export type { MindMapData } from "./mindMapService";

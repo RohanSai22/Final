@@ -5,10 +5,7 @@
 
 import { autonomousResearchAgent } from "./autonomousResearchAgent";
 import { fileProcessingService } from "./fileProcessingService";
-import {
-  perfectMindMapService,
-  type PerfectMindMapData,
-} from "./perfectMindMapService";
+import { perfectMindMapService, type PerfectMindMapData } from "./perfectMindMapService";
 import type {
   ThinkingStreamData,
   Source,
@@ -131,15 +128,13 @@ class AIService {
       if (request.files && request.files.length > 0) {
         callbacks.onProgress("Processing Files", 5);
         try {
-          const fileResults = await fileProcessingService.processFiles(
-            request.files
-          );
+          const fileResults = await fileProcessingService.processFiles(request.files);
           processedFiles = fileResults
-            .filter((result) => result.success)
-            .map((result) => ({
+            .filter(result => result.success)
+            .map(result => ({
               name: result.metadata.fileName,
               content: result.content,
-              type: result.metadata.fileType,
+              type: result.metadata.fileType
             }));
         } catch (fileError) {
           console.error("File processing error:", fileError);
@@ -353,4 +348,4 @@ export type {
   ProcessedFileInput,
 } from "./autonomousResearchAgent";
 
-export type { PerfectMindMapData } from "./perfectMindMapService";
+export type { MindMapData } from "./mindMapService";

@@ -141,75 +141,32 @@ class FileProcessingService {
    */
   private async extractFromPDF(file: File): Promise<string> {
     try {
-      console.log(`FileProcessingService: Processing PDF file: ${file.name}, Size: ${file.size} bytes`);
-      
-      // Verify worker is set
-      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-        throw new Error("PDF worker not configured");
-      }
-      
+      console.log(`FileProcessingService: Attempting to load PDF with workerSrc: ${pdfjs.GlobalWorkerOptions.workerSrc}`); // Added log
       const arrayBuffer = await file.arrayBuffer();
-      console.log(`FileProcessingService: PDF arrayBuffer created, size: ${arrayBuffer.byteLength} bytes`);
-      
-      const loadingTask = pdfjs.getDocument({ 
-        data: arrayBuffer,
-        verbosity: 0 // Reduce console noise
-      });
-      
-      const pdfDoc = await loadingTask.promise;
-      console.log(`FileProcessingService: PDF loaded successfully, pages: ${pdfDoc.numPages}`);
+      const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
 
       let fullText = "";
 
       for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-        try {
-          const page = await pdfDoc.getPage(pageNum);
-          const textContent = await page.getTextContent();
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
 
-          const pageText = textContent.items
-            .map((item: any) => {
-              if ("str" in item) {
-                return item.str;
-              }
-              return "";
-            })
-            .join(" ");
+        const pageText = textContent.items
+          .map((item: any) => {
+            if ("str" in item) {
+              return item.str;
+            }
+            return "";
+          })
+          .join(" ");
 
-          fullText += pageText + "\n";
-          
-          // Log progress for large PDFs
-          if (pageNum % 10 === 0) {
-            console.log(`FileProcessingService: Processed ${pageNum}/${pdfDoc.numPages} pages`);
-          }
-        } catch (pageError) {
-          console.warn(`FileProcessingService: Error processing page ${pageNum}:`, pageError);
-          // Continue with other pages
-        }
+        fullText += pageText + "\n";
       }
 
-      const cleanedText = this.cleanText(fullText);
-      console.log(`FileProcessingService: PDF extraction complete. Extracted ${cleanedText.length} characters`);
-      
-      if (cleanedText.length === 0) {
-        throw new Error("No text content found in PDF - the file might be image-based or corrupted");
-      }
-      
-      return cleanedText;
+      return this.cleanText(fullText);
     } catch (error) {
       console.error("PDF extraction error:", error);
-      
-      // Provide more specific error messages
-      if (error instanceof Error) {
-        if (error.message.includes("Invalid PDF")) {
-          throw new Error("Invalid PDF file format. Please ensure the file is not corrupted.");
-        } else if (error.message.includes("worker")) {
-          throw new Error("PDF processing setup error. Please try again or use a different file format.");
-        } else if (error.message.includes("No text content")) {
-          throw error; // Pass through our specific message
-        }
-      }
-      
-      throw new Error(`Failed to extract text from PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error("Failed to extract text from PDF");
     }
   }
 

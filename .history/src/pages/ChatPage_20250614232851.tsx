@@ -30,9 +30,9 @@ import {
   type ProcessedFileInput,
 } from "@/services/autonomousResearchAgent";
 import { fileProcessingService } from "@/services/fileProcessingService";
-import {
+import { 
   perfectMindMapService,
-  type PerfectMindMapData,
+  type PerfectMindMapData 
 } from "@/services/perfectMindMapService";
 import {
   chatSessionStorage,
@@ -73,8 +73,7 @@ const ChatPage = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Perfect mind map state
-  const [perfectMindMapData, setPerfectMindMapData] =
-    useState<PerfectMindMapData | null>(null);
+  const [perfectMindMapData, setPerfectMindMapData] = useState<PerfectMindMapData | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -115,7 +114,7 @@ const ChatPage = () => {
         mindMapSettings: {
           maxConversations: 30,
           topicThreshold: 0.7,
-          layoutAlgorithm: "dagre",
+          layoutAlgorithm: 'dagre',
           autoUpdateEnabled: true,
           cacheEnabled: true,
         },
@@ -591,7 +590,7 @@ const ChatPage = () => {
 
   const generateAndShowMindMap = async () => {
     if (!currentSessionId) return;
-
+    
     if (perfectMindMapData) {
       setShowMindMap(true);
       return;
@@ -609,7 +608,7 @@ const ChatPage = () => {
 
     try {
       setIsProcessing(true);
-
+      
       const mindMapData = await perfectMindMapService.generatePerfectMindMap(
         messages,
         currentSessionId,
@@ -619,19 +618,15 @@ const ChatPage = () => {
 
       if (mindMapData) {
         setPerfectMindMapData(mindMapData);
-
+        
         // Save to session
-        chatSessionStorage.savePerfectMindMapData(
-          currentSessionId,
-          mindMapData
-        );
-
+        chatSessionStorage.savePerfectMindMapData(currentSessionId, mindMapData);
+        
         setShowMindMap(true);
 
         toast({
           title: "Perfect Mind Map Generated",
-          description:
-            "Knowledge mind map has been created with sophisticated layered architecture.",
+          description: "Knowledge mind map has been created with sophisticated layered architecture.",
         });
       } else {
         throw new Error("Failed to generate perfect mind map");
@@ -657,7 +652,7 @@ const ChatPage = () => {
 
   const regeneratePerfectMindMap = async () => {
     if (!currentSessionId) return;
-
+    
     const lastAiMessage = messages.filter((m) => m.type === "ai").pop();
     if (!lastAiMessage) return;
 
@@ -674,17 +669,13 @@ const ChatPage = () => {
 
       if (mindMapData) {
         setPerfectMindMapData(mindMapData);
-
+        
         // Save to session
-        chatSessionStorage.savePerfectMindMapData(
-          currentSessionId,
-          mindMapData
-        );
+        chatSessionStorage.savePerfectMindMapData(currentSessionId, mindMapData);
 
         toast({
           title: "Perfect Mind Map Regenerated",
-          description:
-            "Knowledge mind map has been recreated with fresh insights.",
+          description: "Knowledge mind map has been recreated with fresh insights.",
         });
       }
     } catch (error) {
@@ -858,12 +849,10 @@ const ChatPage = () => {
                 </div>
               </div>
               <div className="flex-1">
-                <PerfectMindMap
-                  messages={messages}
-                  uploadedFiles={uploadedFiles}
-                  sessionId={currentSessionId || ""}
-                  originalQuery={originalQuery}
-                  onMindMapGenerated={(data) => setPerfectMindMapData(data)}
+                <MindMap
+                  mindMapData={displayedMindMapData}
+                  onNodeExpand={handleNodeExpand}
+                  isLoading={isProcessing && !displayedMindMapData}
                 />
               </div>
             </div>

@@ -9,7 +9,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import PerfectMindMap from "@/components/PerfectMindMap";
+import MindMap from "@/components/ModernMindMap";
+import AdvancedMindMap from "@/components/AdvancedMindMap";
 import { toast } from "@/hooks/use-toast";
 import ThinkingProcess from "@/components/chat/ThinkingProcess";
 import AutonomousThinkingProcess from "@/components/chat/AutonomousThinkingProcess";
@@ -22,6 +23,7 @@ import {
   type ThinkingStreamData,
   type FinalReport,
   type Source,
+  type MindMapData,
   type AIServiceCallbacks,
 } from "@/services/aiService";
 import {
@@ -30,15 +32,14 @@ import {
   type ProcessedFileInput,
 } from "@/services/autonomousResearchAgent";
 import { fileProcessingService } from "@/services/fileProcessingService";
-import {
-  perfectMindMapService,
-  type PerfectMindMapData,
-} from "@/services/perfectMindMapService";
+import { mindMapService } from "@/services/mindMapService";
+import { advancedMindMapService } from "@/services/advancedMindMapService";
 import {
   chatSessionStorage,
   type ChatSession,
   type ChatMessage,
   type UploadedFileMetadata,
+  type AdvancedMindMapData,
 } from "@/services/chatSessionStorage";
 
 interface UploadedFile {
@@ -72,9 +73,9 @@ const ChatPage = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Perfect mind map state
-  const [perfectMindMapData, setPerfectMindMapData] =
-    useState<PerfectMindMapData | null>(null);
+  // Enhanced state for advanced mind map
+  const [advancedMindMapData, setAdvancedMindMapData] = useState<AdvancedMindMapData | null>(null);
+  const [useAdvancedMindMap, setUseAdvancedMindMap] = useState(true);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -85,6 +86,11 @@ const ChatPage = () => {
     ThinkingStreamData[]
   >([]);
   const [showMindMap, setShowMindMap] = useState(false);
+  const [fullMindMapData, setFullMindMapData] = useState<MindMapData | null>(
+    null
+  );
+  const [displayedMindMapData, setDisplayedMindMapData] =
+    useState<MindMapData | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
   const [originalQuery, setOriginalQuery] = useState("");
   const [isAutonomousMode, setIsAutonomousMode] = useState(true);
@@ -109,13 +115,14 @@ const ChatPage = () => {
         })),
         isAutonomousMode,
         messages,
-        perfectMindMapData,
+        fullMindMapData,
+        advancedMindMapData,
         createdAt: now, // This should be set only once when creating
         lastUpdated: now,
         mindMapSettings: {
           maxConversations: 30,
           topicThreshold: 0.7,
-          layoutAlgorithm: "dagre",
+          layoutAlgorithm: 'dagre',
           autoUpdateEnabled: true,
           cacheEnabled: true,
         },
@@ -146,7 +153,7 @@ const ChatPage = () => {
     originalQuery,
     uploadedFiles,
     isAutonomousMode,
-    perfectMindMapData,
+    fullMindMapData,
     isProcessing,
     currentSessionId,
   ]);
@@ -216,10 +223,29 @@ const ChatPage = () => {
           );
           setMessages(savedSession.messages);
 
-          // Load perfect mind map data if available
-          if (savedSession.perfectMindMapData) {
-            setPerfectMindMapData(savedSession.perfectMindMapData);
-            console.log("ChatPage: Restored perfect mind map data");
+          // Load advanced mind map data if available
+          if (savedSession.advancedMindMapData) {
+            setAdvancedMindMapData(savedSession.advancedMindMapData);
+            console.log("ChatPage: Restored advanced mind map data");
+          }
+
+          // Legacy mind map data support
+          if (savedSession.fullMindMapData) {
+            setFullMindMapData(savedSession.fullMindMapData);
+            // Re-initialize displayedMindMapData from fullMindMapData
+            const initialNodes = savedSession.fullMindMapData.nodes.filter(
+              (node) => node.data.level <= INITIAL_DISPLAY_LEVEL
+            );
+            const initialNodeIds = new Set(initialNodes.map((node) => node.id));
+            const initialEdges = savedSession.fullMindMapData.edges.filter(
+              (edge) =>
+                initialNodeIds.has(edge.source) &&
+                initialNodeIds.has(edge.target)
+            );
+            setDisplayedMindMapData({
+              nodes: initialNodes,
+              edges: initialEdges,
+            });
           }
           toast({
             title: "Session Restored",
@@ -274,6 +300,22 @@ const ChatPage = () => {
     setStreamingContent("");
     setCurrentThinking([]);
     setCurrentThinkingStreamData([]);
+    // Do not reset mind map here if we want to build upon it across queries in a session
+    // setFullMindMapData(null);
+    // setDisplayedMindMapData(null);
+
+    const processAndSetMindMapData = (mindMap: MindMapData) => {
+      setFullMindMapData(mindMap);
+      const initialNodes = mindMap.nodes.filter(
+        (node) => node.data.level <= INITIAL_DISPLAY_LEVEL
+      );
+      const initialNodeIds = new Set(initialNodes.map((node) => node.id));
+      const initialEdges = mindMap.edges.filter(
+        (edge) =>
+          initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target)
+      );
+      setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+    };
 
     try {
       // const fileObjects: File[] = currentFiles.map(f => f.file).filter(Boolean); // This line is no longer needed as currentFiles are ProcessedFileInput[]
@@ -486,7 +528,7 @@ const ChatPage = () => {
         setMessages(session.messages);
         setOriginalQuery(session.originalQuery);
         setIsAutonomousMode(session.isAutonomousMode);
-        setPerfectMindMapData(session.perfectMindMapData || null);
+        setFullMindMapData(session.fullMindMapData || null);
 
         // Reset other states
         setUploadedFiles([]);
@@ -495,6 +537,19 @@ const ChatPage = () => {
         setStreamingContent("");
         setIsProcessing(false);
         setShowMindMap(false);
+        setDisplayedMindMapData(null);
+
+        if (session.fullMindMapData) {
+          const initialNodes = session.fullMindMapData.nodes.filter(
+            (node) => node.data.level <= INITIAL_DISPLAY_LEVEL
+          );
+          const initialNodeIds = new Set(initialNodes.map((node) => node.id));
+          const initialEdges = session.fullMindMapData.edges.filter(
+            (edge) =>
+              initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target)
+          );
+          setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
+        }
       }
     } catch (error) {
       console.error("Error loading session:", error);
@@ -529,7 +584,8 @@ const ChatPage = () => {
     setMessages([]);
     setOriginalQuery("");
     setUploadedFiles([]);
-    setPerfectMindMapData(null);
+    setFullMindMapData(null);
+    setDisplayedMindMapData(null);
     setCurrentThinking([]);
     setCurrentThinkingStreamData([]);
     setStreamingContent("");
@@ -590,13 +646,13 @@ const ChatPage = () => {
   };
 
   const generateAndShowMindMap = async () => {
-    if (!currentSessionId) return;
-
-    if (perfectMindMapData) {
+    if (fullMindMapData) {
+      // If mind map exists, just show it
       setShowMindMap(true);
       return;
     }
 
+    // Generate new mind map from latest AI message
     const lastAiMessage = messages.filter((m) => m.type === "ai").pop();
     if (!lastAiMessage) {
       toast({
@@ -610,31 +666,32 @@ const ChatPage = () => {
     try {
       setIsProcessing(true);
 
-      const mindMapData = await perfectMindMapService.generatePerfectMindMap(
-        messages,
-        currentSessionId,
-        uploadedFiles,
-        originalQuery || "Research Query"
+      const mindMap = await mindMapService.generateMindMap(
+        lastAiMessage.content,
+        originalQuery || "Research Query",
+        10 // Max levels for detailed map
       );
 
-      if (mindMapData) {
-        setPerfectMindMapData(mindMapData);
-
-        // Save to session
-        chatSessionStorage.savePerfectMindMapData(
-          currentSessionId,
-          mindMapData
+      if (mindMap) {
+        setFullMindMapData(mindMap);
+        // Initialize displayed mind map with first 3 levels
+        const initialNodes = mindMap.nodes.filter(
+          (node) => node.data.level <= INITIAL_DISPLAY_LEVEL
         );
-
+        const initialNodeIds = new Set(initialNodes.map((node) => node.id));
+        const initialEdges = mindMap.edges.filter(
+          (edge) =>
+            initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target)
+        );
+        setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
         setShowMindMap(true);
 
         toast({
-          title: "Perfect Mind Map Generated",
-          description:
-            "Knowledge mind map has been created with sophisticated layered architecture.",
+          title: "Mind Map Generated",
+          description: "Knowledge mind map has been created successfully.",
         });
       } else {
-        throw new Error("Failed to generate perfect mind map");
+        throw new Error("Failed to generate mind map");
       }
     } catch (error) {
       console.error("Mind map generation error:", error);
@@ -648,41 +705,146 @@ const ChatPage = () => {
     }
   };
 
-  // Perfect Mind Map interaction handlers
-  const handlePerfectMindMapNodeClick = (nodeId: string, nodeType: string) => {
-    console.log("Perfect mind map node clicked:", nodeId, nodeType);
-    // Handle node interactions based on the perfect mind map structure
-    // The PerfectMindMap component will handle its own interactions
+  const handleNodeExpand = async (nodeId: string) => {
+    if (!fullMindMapData || !displayedMindMapData) return;
+
+    try {
+      setIsProcessing(true);
+
+      // Find children of the node in fullMindMapData
+      const nodeChildren = fullMindMapData.edges
+        .filter((edge) => edge.source === nodeId)
+        .map((edge) => edge.target);
+
+      const childNodes = fullMindMapData.nodes.filter((node) =>
+        nodeChildren.includes(node.id)
+      );
+
+      const childEdges = fullMindMapData.edges.filter(
+        (edge) => nodeChildren.includes(edge.target) && edge.source === nodeId
+      );
+
+      // Add children to displayed mind map
+      const existingNodeIds = new Set(
+        displayedMindMapData.nodes.map((n) => n.id)
+      );
+      const newNodes = childNodes.filter(
+        (node) => !existingNodeIds.has(node.id)
+      );
+
+      const existingEdgeIds = new Set(
+        displayedMindMapData.edges.map((e) => e.id)
+      );
+      const newEdges = childEdges.filter(
+        (edge) => !existingEdgeIds.has(edge.id)
+      );
+
+      if (newNodes.length === 0) {
+        toast({
+          title: "No Children",
+          description: "This node has no child nodes to expand.",
+        });
+        return;
+      }
+
+      setDisplayedMindMapData((prev) => {
+        if (!prev) return prev;
+        return {
+          nodes: [...prev.nodes, ...newNodes],
+          edges: [...prev.edges, ...newEdges],
+        };
+      });
+
+      toast({
+        title: "Node Expanded",
+        description: `Added ${newNodes.length} child nodes.`,
+      });
+    } catch (error) {
+      console.error("Node expansion error:", error);
+      toast({
+        title: "Expansion Failed",
+        description: "Could not expand node. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const regeneratePerfectMindMap = async () => {
-    if (!currentSessionId) return;
+  const handleNodeReveal = async (nodeId: string) => {
+    if (!fullMindMapData || !displayedMindMapData) return;
 
+    try {
+      setIsProcessing(true);
+
+      // Find the node and its level
+      const targetNode = fullMindMapData.nodes.find((n) => n.id === nodeId);
+      if (!targetNode) return;
+
+      const nodeLevel = targetNode.data.level;
+
+      // Show all nodes up to this level + 1
+      const newMaxLevel = Math.max(nodeLevel + 1, INITIAL_DISPLAY_LEVEL);
+      const revealedNodes = fullMindMapData.nodes.filter(
+        (node) => node.data.level <= newMaxLevel
+      );
+
+      const revealedNodeIds = new Set(revealedNodes.map((node) => node.id));
+      const revealedEdges = fullMindMapData.edges.filter(
+        (edge) =>
+          revealedNodeIds.has(edge.source) && revealedNodeIds.has(edge.target)
+      );
+
+      setDisplayedMindMapData({
+        nodes: revealedNodes,
+        edges: revealedEdges,
+      });
+
+      toast({
+        title: "Mind Map Revealed",
+        description: `Showing all nodes up to level ${newMaxLevel}.`,
+      });
+    } catch (error) {
+      console.error("Node reveal error:", error);
+      toast({
+        title: "Reveal Failed",
+        description: "Could not reveal mind map section.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const regenerateMindMap = async () => {
     const lastAiMessage = messages.filter((m) => m.type === "ai").pop();
     if (!lastAiMessage) return;
 
     try {
       setIsProcessing(true);
-      setPerfectMindMapData(null);
+      setFullMindMapData(null);
+      setDisplayedMindMapData(null);
 
-      const mindMapData = await perfectMindMapService.generatePerfectMindMap(
-        messages,
-        currentSessionId,
-        uploadedFiles,
-        originalQuery || "Research Query"
+      const mindMap = await mindMapService.generateMindMap(
+        lastAiMessage.content,
+        originalQuery || "Research Query",
+        10
       );
 
-      if (mindMapData) {
-        setPerfectMindMapData(mindMapData);
-
-        // Save to session
-        chatSessionStorage.savePerfectMindMapData(
-          currentSessionId,
-          mindMapData
+      if (mindMap) {
+        setFullMindMapData(mindMap);
+        const initialNodes = mindMap.nodes.filter(
+          (node) => node.data.level <= INITIAL_DISPLAY_LEVEL
         );
+        const initialNodeIds = new Set(initialNodes.map((node) => node.id));
+        const initialEdges = mindMap.edges.filter(
+          (edge) =>
+            initialNodeIds.has(edge.source) && initialNodeIds.has(edge.target)
+        );
+        setDisplayedMindMapData({ nodes: initialNodes, edges: initialEdges });
 
         toast({
-          title: "Perfect Mind Map Regenerated",
+          title: "Mind Map Regenerated",
           description:
             "Knowledge mind map has been recreated with fresh insights.",
         });
@@ -749,7 +911,7 @@ const ChatPage = () => {
                 size="sm"
               >
                 <Map className="h-4 w-4 mr-2" />
-                {perfectMindMapData ? "View Mind Map" : "Generate Mind Map"}
+                {fullMindMapData ? "View Mind Map" : "Generate Mind Map"}
               </Button>
             )}
             {showMindMap && (
@@ -828,7 +990,7 @@ const ChatPage = () => {
           />
         </div>
 
-        {showMindMap && perfectMindMapData && (
+        {showMindMap && displayedMindMapData && (
           <div className="mind-map-container w-1/2 border-l border-slate-700/50">
             <div className="h-full flex flex-col bg-slate-800/50">
               <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
@@ -837,7 +999,7 @@ const ChatPage = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={regeneratePerfectMindMap}
+                    onClick={regenerateMindMap}
                     disabled={isProcessing}
                     className="text-slate-300 border-slate-600 hover:bg-slate-700 hover:text-white"
                   >
@@ -858,12 +1020,10 @@ const ChatPage = () => {
                 </div>
               </div>
               <div className="flex-1">
-                <PerfectMindMap
-                  messages={messages}
-                  uploadedFiles={uploadedFiles}
-                  sessionId={currentSessionId || ""}
-                  originalQuery={originalQuery}
-                  onMindMapGenerated={(data) => setPerfectMindMapData(data)}
+                <MindMap
+                  mindMapData={displayedMindMapData}
+                  onNodeExpand={handleNodeExpand}
+                  isLoading={isProcessing && !displayedMindMapData}
                 />
               </div>
             </div>
