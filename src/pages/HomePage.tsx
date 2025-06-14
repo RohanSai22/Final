@@ -33,7 +33,7 @@ const HomePage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null); // Created fileInputRef
 
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default to open
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Default to open
   const CHAT_HISTORY_KEY = 'novah_chat_history'; // Define key
 
   useEffect(() => {

@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Map, X, Menu, XSquare as LucideXSquare } from "lucide-react"; // Added Menu, XSquare as LucideX (X is already used)
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Map, X, Menu, XSquare as LucideXSquare, ChevronsUpDown } from "lucide-react"; // Added Menu, XSquare as LucideX (X is already used)
 // Dialog related imports are removed as the dialog for thinking process is removed
 import MindMap from "@/components/ModernMindMap";
 import { toast } from "@/hooks/use-toast";
@@ -65,7 +71,8 @@ const ChatPage = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string>(uuidv4());
   const [currentSessionName, setCurrentSessionName] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // State for sidebar
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // State for sidebar
+  const [isThinkingProcessOpen, setIsThinkingProcessOpen] = useState(false);
 
   const saveChatSession = () => {
     if (!currentSessionId) {
@@ -195,6 +202,7 @@ const ChatPage = () => {
 
   const processResearchQuery = async (query: string, currentFiles: ProcessedFileInput[], deepResearch: boolean) => {
     setIsProcessing(true);
+    setIsThinkingProcessOpen(true); // Open thinking process view
     setCurrentThinking([]); // For older thinking steps, if any
     const liveThinkingStreamData: ThinkingStreamData[] = [];
     setCurrentThinkingStreamData([]); // Clear live display for new query
@@ -225,16 +233,16 @@ const ChatPage = () => {
               };
               setMessages((prev) => [...prev, aiMessage]);
               // No more localStorage for thinking_process
-              setCurrentThinkingStreamData([]); setIsProcessing(false);
+              setCurrentThinkingStreamData([]); setIsProcessing(false); setIsThinkingProcessOpen(false);
             },
-            onError: (error) => { setIsProcessing(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
+            onError: (error) => { setIsProcessing(false); setIsThinkingProcessOpen(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
           }
         );
       } else {
         const aiCallbacks: AIServiceCallbacks = {
           onThinkingUpdate: onThinkingDataCallback,
           onProgress: (stage, progress) => console.log(`Research progress: ${stage} (${progress}%)`),
-          onError: (error) => { setIsProcessing(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
+          onError: (error) => { setIsProcessing(false); setIsThinkingProcessOpen(false); toast({title: "Research Error", description: error.message, variant: "destructive"})},
           onComplete: (response) => {
             const aiMessage: ChatMessage = {
               id: uuidv4(), type: "ai", content: response.finalReport.content,
@@ -244,12 +252,12 @@ const ChatPage = () => {
             };
             setMessages((prev) => [...prev, aiMessage]);
             // No more localStorage for thinking_process
-            setCurrentThinkingStreamData([]); setIsProcessing(false);
+            setCurrentThinkingStreamData([]); setIsProcessing(false); setIsThinkingProcessOpen(false);
           },
         };
         await aiService.processResearch({ query, files: [], researchMode }, aiCallbacks);
       }
-    } catch (error: any) { setIsProcessing(false); toast({title: "Processing Error", description: error.message, variant: "destructive"});}
+    } catch (error: any) { setIsProcessing(false); setIsThinkingProcessOpen(false); toast({title: "Processing Error", description: error.message, variant: "destructive"});}
   };
 
   const handleSendMessage = async () => {
@@ -284,6 +292,7 @@ const ChatPage = () => {
     setNewMessage("");
     setUploadedFiles([]);
     setIsProcessing(true);
+    setIsThinkingProcessOpen(true); // Open thinking process view
     const liveThinkingStreamData: ThinkingStreamData[] = []; // For this specific follow-up
     setCurrentThinkingStreamData([]); // Clear live display
 
@@ -297,7 +306,7 @@ const ChatPage = () => {
         const followUpCallbacks: AIServiceCallbacks = {
           onThinkingUpdate: (data) => { liveThinkingStreamData.push(data); setCurrentThinkingStreamData([...liveThinkingStreamData]); },
           onProgress: (stage, progress) => console.log(`Follow-up progress: ${stage} (${progress}%)`),
-          onError: (error) => { setIsProcessing(false); toast({title: "Follow-up Error", description: error.message, variant: "destructive"});},
+          onError: (error) => { setIsProcessing(false); setIsThinkingProcessOpen(false); toast({title: "Follow-up Error", description: error.message, variant: "destructive"});},
           onComplete: (response) => {
             const aiMessage: ChatMessage = {
               id: uuidv4(), type: "ai", content: response.finalReport.content,
@@ -307,14 +316,15 @@ const ChatPage = () => {
             };
             setMessages((prev) => [...prev, aiMessage]);
             // No more localStorage for thinking_process
-            setCurrentThinkingStreamData([]); setIsProcessing(false);
+            setCurrentThinkingStreamData([]); setIsProcessing(false); setIsThinkingProcessOpen(false);
           },
         };
         await aiService.processFollowUp(currentQuery, contextReport, followUpCallbacks);
       } else {
-        await handleInitialQuery(currentQuery, processedFilesForAgent, false);
+        // For initial queries within handleSendMessage, processResearchQuery will handle setIsThinkingProcessOpen
+        await processResearchQuery(currentQuery, processedFilesForAgent, false); // Changed from handleInitialQuery to processResearchQuery
       }
-    } catch (error: any) { setIsProcessing(false); toast({title: "Message Sending Error", description: error.message, variant: "destructive"});}
+    } catch (error: any) { setIsProcessing(false); setIsThinkingProcessOpen(false); toast({title: "Message Sending Error", description: error.message, variant: "destructive"});}
   };
 
   const handleNewChat = () => {
@@ -331,6 +341,7 @@ const ChatPage = () => {
     setIsProcessing(false);
     setShowMindMap(false);
     toast({ title: "New Chat Started", description: "Ready for a new conversation." });
+  navigate('/');
   };
 
   const handleChatFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -524,8 +535,8 @@ const ChatPage = () => {
 
         <div className={`flex flex-1 overflow-y-hidden ${showMindMap ? "flex-row" : "flex-col"}`}>
           <div className={`flex flex-col ${showMindMap ? "w-1/2" : "w-full"} h-full`}>
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-              <div className="max-w-4xl mx-auto space-y-6">
+            <ScrollArea className="flex-1">
+              <div className="max-w-4xl mx-auto space-y-6 p-6">
                 {messages.map((message) => (
                   <MessageBubble
                     key={message.id}
@@ -534,10 +545,20 @@ const ChatPage = () => {
                   />
                 ))}
                 {isProcessing && messages.length > 0 && messages[messages.length-1].type === 'user' && (
-                  <div className="flex justify-start">
-                    <div className="max-w-3xl">
+                  <div className="flex justify-start w-full">
+                    <div className="max-w-3xl w-full">
                       {isAutonomousMode ? (
-                        <AutonomousThinkingProcess streamData={currentThinkingStreamData} isAutonomous={true} isVisible={true} />
+                        <Collapsible open={isThinkingProcessOpen} onOpenChange={setIsThinkingProcessOpen} className="w-full">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" className="w-full flex justify-center items-center text-sm text-slate-400 hover:text-slate-200">
+                              <ChevronsUpDown className="h-4 w-4 mr-2" />
+                              AI Thinking Process...
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <AutonomousThinkingProcess streamData={currentThinkingStreamData} isAutonomous={true} isVisible={isThinkingProcessOpen} />
+                          </CollapsibleContent>
+                        </Collapsible>
                       ) : (
                         // currentThinking is for older, non-streamed thinking steps.
                         // If currentThinking can be represented as ThinkingStreamData[], it could also use AutonomousThinkingProcess.
@@ -549,7 +570,7 @@ const ChatPage = () => {
                 )}
                 <div ref={messagesEndRef} />
               </div>
-            </div>
+            </ScrollArea>
             <ChatInput
               message={newMessage}
               onMessageChange={setNewMessage}
