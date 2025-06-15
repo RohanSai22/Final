@@ -174,30 +174,10 @@ const ChatPage = () => {
   useEffect(() => {
     let initialQueryHandled = false;
 
-    // First check if we have an existing session we should continue
-    const existingSessionId = chatSessionStorage.getCurrentSessionId();
-    let shouldUseExistingSession = false;
-
-    if (existingSessionId) {
-      const savedSession = chatSessionStorage.loadSession(existingSessionId);
-      if (
-        savedSession &&
-        savedSession.messages &&
-        savedSession.messages.length > 0
-      ) {
-        shouldUseExistingSession = true;
-        console.log(
-          "ChatPage: Found existing session with",
-          savedSession.messages.length,
-          "messages"
-        );
-      }
-    }
-
-    // Only create new session if we have navigation state AND no existing session to continue
-    if (location.state && !shouldUseExistingSession) {
+    // If we have navigation state from home page, ALWAYS create a new session
+    if (location.state) {
       console.log(
-        "ChatPage: New navigation state present and no existing session, creating new session and initializing."
+        "ChatPage: Navigation state present from home page, creating new session."
       );
       const newSessionId = chatSessionStorage.createNewSession();
       setCurrentSessionId(newSessionId);
@@ -207,8 +187,49 @@ const ChatPage = () => {
         files,
         deepResearch,
         autonomousMode: navAutonomousMode,
+        sessionId: existingSessionId,
+        loadExisting,
       } = location.state as any;
 
+      // If we're explicitly loading an existing session (from sidebar)
+      if (loadExisting && existingSessionId) {
+        console.log("ChatPage: Loading existing session:", existingSessionId);
+        const savedSession = chatSessionStorage.loadSession(existingSessionId);
+        if (savedSession) {
+          setCurrentSessionId(existingSessionId);
+          setOriginalQuery(savedSession.originalQuery || "");
+          setIsAutonomousMode(
+            savedSession.isAutonomousMode === undefined
+              ? true
+              : savedSession.isAutonomousMode
+          );
+          
+          // Sort messages chronologically when loading from localStorage
+          const sortedMessages = savedSession.messages.sort((a, b) => {
+            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return timeA - timeB; // Chronological order
+          });
+          setMessages(sortedMessages);
+
+          // Load perfect mind map data if available
+          if (savedSession.perfectMindMapData) {
+            setPerfectMindMapData(savedSession.perfectMindMapData);
+            console.log("ChatPage: Restored perfect mind map data");
+          }
+
+          // Set current session ID in localStorage for persistence
+          chatSessionStorage.setCurrentSessionId(existingSessionId);
+
+          toast({
+            title: "Session Loaded",
+            description: "Your chat session has been restored.",
+          });
+        }
+        return;
+      }
+
+      // For new queries from home page, always create new session and process query
       setOriginalQuery(query || "");
       setIsAutonomousMode(
         navAutonomousMode === undefined ? true : navAutonomousMode
@@ -222,81 +243,32 @@ const ChatPage = () => {
 
       handleInitialQuery(query, initialProcessedFilesFromNav, deepResearch);
       initialQueryHandled = true;
-    } else if (
-      location.state &&
-      shouldUseExistingSession &&
-      existingSessionId
-    ) {
-      // We have navigation state but also an existing session - use existing session but don't process navigation query
-      console.log(
-        "ChatPage: Navigation state present but continuing with existing session:",
-        existingSessionId
-      );
-      const savedSession = chatSessionStorage.loadSession(existingSessionId);
-      if (savedSession) {
-        setCurrentSessionId(existingSessionId);
-        setOriginalQuery(savedSession.originalQuery || "");
-
+    } else {
+      // No navigation state - try to load existing session or create new one
+      const existingSessionId = chatSessionStorage.getCurrentSessionId();
+      if (existingSessionId) {
+        const savedSession = chatSessionStorage.loadSession(existingSessionId);
         if (
-          savedSession.uploadedFileMetadata &&
-          savedSession.uploadedFileMetadata.length > 0
+          savedSession &&
+          savedSession.messages &&
+          savedSession.messages.length > 0
         ) {
           console.log(
-            "ChatPage: Restored file metadata:",
-            savedSession.uploadedFileMetadata
+            "ChatPage: Loading existing session from localStorage:",
+            savedSession
           );
-        }
+          setCurrentSessionId(existingSessionId);
+          setOriginalQuery(savedSession.originalQuery || "");
 
-        setIsAutonomousMode(
-          savedSession.isAutonomousMode === undefined
-            ? true
-            : savedSession.isAutonomousMode
-        );
-        // Sort messages chronologically when loading from localStorage
-        const sortedMessages = savedSession.messages.sort((a, b) => {
-          const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return timeA - timeB; // Chronological order
-        });
-        setMessages(sortedMessages);
-
-        // Load perfect mind map data if available
-        if (savedSession.perfectMindMapData) {
-          setPerfectMindMapData(savedSession.perfectMindMapData);
-          console.log("ChatPage: Restored perfect mind map data");
-        }
-
-        console.log(
-          "ChatPage: Session fully restored with",
-          sortedMessages.length,
-          "messages, ignoring navigation state"
-        );
-
-        toast({
-          title: "Session Continued",
-          description: "Continuing your previous chat session.",
-        });
-      }
-    } else if (shouldUseExistingSession && existingSessionId) {
-      // Continue with existing session
-      console.log(
-        "ChatPage: Continuing with existing session:",
-        existingSessionId
-      );
-      const savedSession = chatSessionStorage.loadSession(existingSessionId);
-      if (savedSession) {
-        setCurrentSessionId(existingSessionId);
-        setOriginalQuery(savedSession.originalQuery || "");
-
-        if (
-          savedSession.uploadedFileMetadata &&
-          savedSession.uploadedFileMetadata.length > 0
-        ) {
-          console.log(
-            "ChatPage: Restored file metadata:",
-            savedSession.uploadedFileMetadata
-          );
-        }
+          if (
+            savedSession.uploadedFileMetadata &&
+            savedSession.uploadedFileMetadata.length > 0
+          ) {
+            console.log(
+              "ChatPage: Restored file metadata:",
+              savedSession.uploadedFileMetadata
+            );
+          }
 
         setIsAutonomousMode(
           savedSession.isAutonomousMode === undefined
@@ -381,6 +353,38 @@ const ChatPage = () => {
             sortedMessages.length,
             "messages"
           );
+
+          toast({
+            title: "Session Restored",
+            description: "Your previous chat session has been loaded.",
+          });
+        } else {
+          // Create new session if no valid existing session
+          const newSessionId = chatSessionStorage.createNewSession();
+          setCurrentSessionId(newSessionId);
+        }
+      } else {
+        // Create new session
+        const newSessionId = chatSessionStorage.createNewSession();
+        setCurrentSessionId(newSessionId);
+          setIsAutonomousMode(
+            savedSession.isAutonomousMode === undefined
+              ? true
+              : savedSession.isAutonomousMode
+          );
+          // Sort messages chronologically when loading from localStorage
+          const sortedMessages = savedSession.messages.sort((a, b) => {
+            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return timeA - timeB; // Chronological order
+          });
+          setMessages(sortedMessages);
+
+          // Load perfect mind map data if available
+          if (savedSession.perfectMindMapData) {
+            setPerfectMindMapData(savedSession.perfectMindMapData);
+            console.log("ChatPage: Restored perfect mind map data");
+          }
 
           toast({
             title: "Session Restored",
@@ -860,7 +864,9 @@ const ChatPage = () => {
     try {
       setIsProcessing(true);
 
-      console.log("ChatPage: Generating perfect mind map with dynamic layers...");
+      console.log(
+        "ChatPage: Generating perfect mind map with dynamic layers..."
+      );
 
       // Use the perfect mind map service (now includes dynamic layers)
       const mindMapData = await perfectMindMapService.generatePerfectMindMap(
@@ -917,7 +923,9 @@ const ChatPage = () => {
       setIsProcessing(true);
       setPerfectMindMapData(null);
 
-      console.log("ChatPage: Regenerating perfect mind map with dynamic layers...");
+      console.log(
+        "ChatPage: Regenerating perfect mind map with dynamic layers..."
+      );
 
       // Use the perfect mind map service for regeneration
       const mindMapData = await perfectMindMapService.generatePerfectMindMap(

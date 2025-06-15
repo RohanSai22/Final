@@ -7,6 +7,7 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { v4 as uuidv4 } from "uuid";
+import dagre from "dagre";
 import type { ChatMessage } from "@/services/chatSessionStorage";
 
 // Core interfaces
@@ -91,6 +92,133 @@ class PerfectMindMapService {
     this.initializeAI();
   }
 
+  // =====================================================================================
+  // DAGRE LAYOUT IMPLEMENTATION
+  // =====================================================================================
+  
+  private applyDagreLayout(
+    nodes: PerfectMindMapNode[],
+    edges: PerfectMindMapEdge[]
+  ): PerfectMindMapNode[] {
+    const dagreGraph = new dagre.graphlib.Graph();
+    dagreGraph.setDefaultEdgeLabel(() => ({}));
+    
+    // Configure the graph layout
+    dagreGraph.setGraph({
+      rankdir: "TB", // Top to Bottom layout
+      ranksep: 120,  // Vertical spacing between levels
+      nodesep: 100,  // Horizontal spacing between nodes
+      edgesep: 50,   // Edge separation
+      marginx: 50,   // Graph margin x
+      marginy: 50,   // Graph margin y
+    });
+
+    // Add nodes to dagre graph
+    nodes.forEach((node) => {
+      dagreGraph.setNode(node.id, {
+        width: 200,  // Node width
+        height: 80,  // Node height
+        level: node.data.level, // Custom level for additional control
+      });
+    });
+
+    // Add edges to dagre graph
+    edges.forEach((edge) => {
+      dagreGraph.setEdge(edge.source, edge.target);
+    });
+
+    // Apply the dagre layout
+    dagre.layout(dagreGraph);
+
+    // Update node positions based on dagre layout
+    const layoutedNodes = nodes.map((node) => {
+      const dagreNode = dagreGraph.node(node.id);
+      return {
+        ...node,
+        position: {
+          x: dagreNode.x - dagreNode.width / 2,
+          y: dagreNode.y - dagreNode.height / 2,
+        },
+      };
+    });
+
+    // Additional level-based refinement for perfect hierarchical layout
+    return this.refineHierarchicalLayout(layoutedNodes);
+  }
+
+  private refineHierarchicalLayout(nodes: PerfectMindMapNode[]): PerfectMindMapNode[] {
+    // Group nodes by level
+    const nodesByLevel = nodes.reduce((acc, node) => {
+      const level = node.data.level;
+      if (!acc[level]) acc[level] = [];
+      acc[level].push(node);
+      return acc;
+    }, {} as Record<number, PerfectMindMapNode[]>);
+
+    // Refine positioning for each level
+    Object.keys(nodesByLevel).forEach((levelStr) => {
+      const level = parseInt(levelStr);
+      const levelNodes = nodesByLevel[level];
+      
+      if (levelNodes.length > 1) {
+        // Sort nodes by their current x position to maintain order
+        levelNodes.sort((a, b) => a.position.x - b.position.x);
+        
+        // Calculate optimal spacing
+        const totalWidth = 1200; // Total available width
+        const nodeSpacing = Math.max(250, totalWidth / levelNodes.length);
+        const startX = -(totalWidth / 2) + (nodeSpacing / 2);
+        
+        // Redistribute nodes horizontally with perfect spacing
+        levelNodes.forEach((node, index) => {
+          node.position.x = startX + (index * nodeSpacing);
+          
+          // Set specific Y positions based on level
+          switch (level) {
+            case 1: // Central node
+              node.position.y = 0;
+              break;
+            case 2: // Main branches
+              node.position.y = 150;
+              break;
+            case 3: // Files and queries
+              node.position.y = 350;
+              break;
+            case 4: // Analysis nodes
+              node.position.y = 550;
+              break;
+            default:
+              node.position.y = 150 + ((level - 1) * 200);
+          }
+        });
+      } else if (levelNodes.length === 1) {
+        // Center single nodes
+        const node = levelNodes[0];
+        node.position.x = 0;
+        
+        // Set Y position based on level
+        switch (level) {
+          case 1:
+            node.position.y = 0;
+            break;
+          case 2:
+            node.position.y = 150;
+            break;
+          case 3:
+            node.position.y = 350;
+            break;
+          case 4:
+            node.position.y = 550;
+            break;
+          default:
+            node.position.y = 150 + ((level - 1) * 200);
+        }
+      }
+    });
+
+    return nodes;
+  }
+
   private initializeAI() {
     try {
       const viteGoogleAIKey = import.meta.env.VITE_GOOGLE_AI_API_KEY;
@@ -160,13 +288,11 @@ class PerfectMindMapService {
     console.log("🚀 Generating combined Perfect + Dynamic Mind Map...");
 
     const nodes: PerfectMindMapNode[] = [];
-    const edges: PerfectMindMapEdge[] = [];
-
-    // LAYER 1: Central Brain Node
+    const edges: PerfectMindMapEdge[] = [];    // LAYER 1: Central Brain Node
     const centralNode: PerfectMindMapNode = {
       id: "central-brain",
       type: "central",
-      position: { x: 400, y: 300 },
+      position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
       data: {
         label: "🧠 AI Research Brain",
         level: 1,
@@ -184,11 +310,10 @@ class PerfectMindMapService {
     const fileBranchId = "files-branch";
     const queryBranchId = "queries-branch";
 
-    if (uploadedFiles.length > 0) {
-      const filesBranch: PerfectMindMapNode = {
+    if (uploadedFiles.length > 0) {      const filesBranch: PerfectMindMapNode = {
         id: fileBranchId,
         type: "branch",
-        position: { x: 200, y: 150 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: "📁 File Analysis",
           level: 2,
@@ -215,11 +340,10 @@ class PerfectMindMapService {
     }
 
     const userMessages = messages.filter((m) => m.type === "user");
-    if (userMessages.length > 0) {
-      const queriesBranch: PerfectMindMapNode = {
+    if (userMessages.length > 0) {      const queriesBranch: PerfectMindMapNode = {
         id: queryBranchId,
         type: "branch",
-        position: { x: 600, y: 150 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: "❓ Query Analysis",
           level: 2,
@@ -254,12 +378,10 @@ class PerfectMindMapService {
     for (let i = 0; i < uploadedFiles.length; i++) {
       const file = uploadedFiles[i];
       const fileNodeId = `file-${i}`;
-      fileNodeIds.push(fileNodeId);
-
-      const fileNode: PerfectMindMapNode = {
+      fileNodeIds.push(fileNodeId);      const fileNode: PerfectMindMapNode = {
         id: fileNodeId,
         type: "file",
-        position: { x: 100 + i * 200, y: 50 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: `📄 ${
             file.name.length > 20
@@ -305,7 +427,7 @@ class PerfectMindMapService {
       const queryNode: PerfectMindMapNode = {
         id: queryNodeId,
         type: "query",
-        position: { x: 500 + i * 200, y: 50 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: `❓ Query ${i + 1}`,
           level: 3,
@@ -402,10 +524,8 @@ class PerfectMindMapService {
       edges.push(...fallbackDynamic.edges);
       maxDepth = 4;
       dynamicLayers = 1;
-    }
-
-    // Apply final layout optimization
-    const layoutedNodes = this.optimizeLayout(nodes, edges);
+    }    // Apply Dagre layout for perfect hierarchical arrangement
+    const layoutedNodes = this.applyDagreLayout(nodes, edges);
 
     return {
       nodes: layoutedNodes,

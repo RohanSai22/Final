@@ -34,12 +34,7 @@ const ChatInput = ({
 
   const handleUploadClick = () => {
     console.log("ChatInput: Upload button clicked, triggering file input");
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-      console.log("ChatInput: File input clicked successfully");
-    } else {
-      console.error("ChatInput: File input ref is null");
-    }
+    fileInputRef.current?.click();
   };
 
   return (
@@ -89,7 +84,7 @@ const ChatInput = ({
             className="hidden"
             ref={fileInputRef}
           />
-
+          
           <Button
             variant="outline"
             onClick={handleUploadClick}

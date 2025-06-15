@@ -34,12 +34,7 @@ const ChatInput = ({
 
   const handleUploadClick = () => {
     console.log("ChatInput: Upload button clicked, triggering file input");
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-      console.log("ChatInput: File input clicked successfully");
-    } else {
-      console.error("ChatInput: File input ref is null");
-    }
+    fileInputRef.current?.click();
   };
 
   return (
@@ -81,24 +76,22 @@ const ChatInput = ({
             disabled={isProcessing}
           />
 
-          <input
-            type="file"
-            multiple
-            accept=".txt,.pdf,.doc,.docx"
-            onChange={onFileUpload}
-            className="hidden"
-            ref={fileInputRef}
-          />
-
-          <Button
-            variant="outline"
-            onClick={handleUploadClick}
-            className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-slate-500/70 rounded-2xl px-4 py-3"
-            disabled={isProcessing}
-            type="button"
-          >
-            <Upload className="h-4 w-4" />
-          </Button>
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              multiple
+              accept=".txt,.pdf,.doc,.docx"
+              onChange={onFileUpload}
+              className="hidden"
+            />
+            <Button
+              variant="outline"
+              className="bg-slate-700/30 border-2 border-slate-600/50 text-white hover:bg-slate-700/50 hover:border-slate-500/70 rounded-2xl px-4 py-3"
+              disabled={isProcessing}
+            >
+              <Upload className="h-4 w-4" />
+            </Button>
+          </label>
 
           <Button
             onClick={onSendMessage}

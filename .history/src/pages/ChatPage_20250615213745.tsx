@@ -696,14 +696,12 @@ const ChatPage = () => {
   };
 
   // File upload handler for ChatInput (simplified as it doesn't auto-process here)
-  const handleChatFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleChatFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files) return;
 
     const fileArray = Array.from(files);
-
+    
     // Check file limit
     if (uploadedFiles.length + fileArray.length > 2) {
       toast({
@@ -724,9 +722,7 @@ const ChatPage = () => {
           title: "Invalid File Type",
           description: `${unsupportedFiles
             .map((f) => f.name)
-            .join(
-              ", "
-            )} are not supported. Please upload PDF, DOCX, DOC, or TXT files.`,
+            .join(", ")} are not supported. Please upload PDF, DOCX, DOC, or TXT files.`,
           variant: "destructive",
         });
         return;

@@ -195,7 +195,7 @@ const ChatPage = () => {
               ? true
               : savedSession.isAutonomousMode
           );
-
+          
           // Sort messages chronologically when loading from localStorage
           const sortedMessages = savedSession.messages.sort((a, b) => {
             const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
@@ -227,7 +227,7 @@ const ChatPage = () => {
       );
       const newSessionId = chatSessionStorage.createNewSession();
       setCurrentSessionId(newSessionId);
-
+      
       setOriginalQuery(query || "");
       setIsAutonomousMode(
         navAutonomousMode === undefined ? true : navAutonomousMode
@@ -597,19 +597,14 @@ const ChatPage = () => {
       } else {
         // If autonomous or no prior AI message, treat as a new research query
         // Convert current files (UploadedFile[]) to ProcessedFileInput[] for the service
-        const processedFilesForResearch: ProcessedFileInput[] =
-          currentFiles.map((uf) => ({
-            name: uf.name,
-            content: uf.content,
-            type: uf.type,
-          }));
-
+        const processedFilesForResearch: ProcessedFileInput[] = currentFiles.map((uf) => ({
+          name: uf.name,
+          content: uf.content,
+          type: uf.type,
+        }));
+        
         // Call processResearchQuery directly without adding another user message
-        await processResearchQuery(
-          currentQuery,
-          processedFilesForResearch,
-          false
-        );
+        await processResearchQuery(currentQuery, processedFilesForResearch, false);
       }
     } catch (error: any) {
       /* ... */ setIsProcessing(false);
@@ -696,94 +691,27 @@ const ChatPage = () => {
   };
 
   // File upload handler for ChatInput (simplified as it doesn't auto-process here)
-  const handleChatFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleChatFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files) return;
-
     const fileArray = Array.from(files);
-
-    // Check file limit
+    // Basic validation, can be expanded
     if (uploadedFiles.length + fileArray.length > 2) {
       toast({
-        title: "File Limit Exceeded",
-        description: "You can only upload up to 2 files in chat.",
+        title: "File Limit",
+        description: "Max 2 files for follow-up.",
         variant: "destructive",
       });
       return;
     }
-
-    try {
-      // Validate file types using the real service
-      const unsupportedFiles = fileArray.filter(
-        (file) => !fileProcessingService.isFileTypeSupported(file)
-      );
-      if (unsupportedFiles.length > 0) {
-        toast({
-          title: "Invalid File Type",
-          description: `${unsupportedFiles
-            .map((f) => f.name)
-            .join(
-              ", "
-            )} are not supported. Please upload PDF, DOCX, DOC, or TXT files.`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Show processing toast
-      toast({
-        title: "Processing Files",
-        description: `Processing ${fileArray.length} file(s)...`,
-      });
-
-      // Process files using the fileProcessingService
-      const processedFiles = await Promise.all(
-        fileArray.map(async (file) => {
-          try {
-            const result = await fileProcessingService.processFile(file);
-            if (!result.success) {
-              throw new Error(result.error || "Failed to process file");
-            }
-            return {
-              id: uuidv4(),
-              name: file.name,
-              content: result.content,
-              type: file.type,
-              file: file,
-              processed: true,
-              wordCount: result.metadata.wordCount,
-            };
-          } catch (error) {
-            console.error(`Error processing file ${file.name}:`, error);
-            toast({
-              title: "File Processing Error",
-              description: `Failed to process ${file.name}: ${
-                error instanceof Error ? error.message : "Unknown error"
-              }`,
-              variant: "destructive",
-            });
-            throw error;
-          }
-        })
-      );
-
-      // Add processed files to state
-      setUploadedFiles((prev) => [...prev, ...processedFiles]);
-
-      // Success toast
-      toast({
-        title: "Files Uploaded Successfully",
-        description: `${processedFiles.length} file(s) processed and ready to use.`,
-      });
-
-      // Clear the input
-      event.target.value = "";
-    } catch (error) {
-      console.error("File upload error:", error);
-      // Error toast is already shown in the processing loop
-    }
+    const newUiFiles: UploadedFile[] = fileArray.map((f) => ({
+      id: uuidv4(),
+      name: f.name,
+      type: f.type,
+      file: f,
+      content: "", // Content not read here
+    }));
+    setUploadedFiles((prev) => [...prev, ...newUiFiles]);
   };
 
   const closeThinkingProcessDialog = () => {

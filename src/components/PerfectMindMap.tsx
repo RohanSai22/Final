@@ -166,9 +166,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
         );
 
       // Cache the result
-      mindMapCache.current = { hash: dataHash, data: perfectedMindMapData };
-
-      // Update state
+      mindMapCache.current = { hash: dataHash, data: perfectedMindMapData }; // Update state
       setMindMapData(perfectedMindMapData);
       setNodes(perfectedMindMapData.nodes);
       setEdges(convertToReactFlowEdges(perfectedMindMapData.edges));
@@ -176,10 +174,15 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
       // Callback for parent component
       onMindMapGenerated?.(perfectedMindMapData);
 
-      // Auto-fit view for optimal viewing
+      // Auto-fit view for optimal viewing with better spacing
       setTimeout(() => {
-        fitView({ padding: 0.2, maxZoom: 1.2 });
-      }, 100);
+        fitView({
+          padding: 0.3,
+          maxZoom: 0.9,
+          minZoom: 0.4,
+          duration: 800,
+        });
+      }, 200);
 
       toast({
         title: "🧠 Perfect Mind Map Generated",
@@ -395,6 +398,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
         isFullscreen ? "fixed inset-0 z-50 bg-white" : ""
       }`}
     >
+      {" "}
       <ReactFlow
         nodes={filteredNodes}
         edges={filteredEdges}
@@ -405,12 +409,25 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
         nodeTypes={perfectNodeTypes}
         connectionMode={ConnectionMode.Loose}
         fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+        fitViewOptions={{
+          padding: 0.3,
+          maxZoom: 0.9,
+          minZoom: 0.4,
+        }}
         className="bg-gradient-to-br from-slate-50 to-blue-50"
         proOptions={{ hideAttribution: true }}
         nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={true}
+        panOnScroll={true}
+        selectionOnDrag={false}
+        panOnDrag={[1, 2]}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
+        zoomOnDoubleClick={false}
+        minZoom={0.2}
+        maxZoom={2}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}
       >
         {/* Enhanced Controls */}
         <Controls

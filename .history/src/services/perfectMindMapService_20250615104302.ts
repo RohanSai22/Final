@@ -7,6 +7,7 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { v4 as uuidv4 } from "uuid";
+import dagre from "dagre";
 import type { ChatMessage } from "@/services/chatSessionStorage";
 
 // Core interfaces
@@ -91,6 +92,133 @@ class PerfectMindMapService {
     this.initializeAI();
   }
 
+  // =====================================================================================
+  // DAGRE LAYOUT IMPLEMENTATION
+  // =====================================================================================
+  
+  private applyDagreLayout(
+    nodes: PerfectMindMapNode[],
+    edges: PerfectMindMapEdge[]
+  ): PerfectMindMapNode[] {
+    const dagreGraph = new dagre.graphlib.Graph();
+    dagreGraph.setDefaultEdgeLabel(() => ({}));
+    
+    // Configure the graph layout
+    dagreGraph.setGraph({
+      rankdir: "TB", // Top to Bottom layout
+      ranksep: 120,  // Vertical spacing between levels
+      nodesep: 100,  // Horizontal spacing between nodes
+      edgesep: 50,   // Edge separation
+      marginx: 50,   // Graph margin x
+      marginy: 50,   // Graph margin y
+    });
+
+    // Add nodes to dagre graph
+    nodes.forEach((node) => {
+      dagreGraph.setNode(node.id, {
+        width: 200,  // Node width
+        height: 80,  // Node height
+        level: node.data.level, // Custom level for additional control
+      });
+    });
+
+    // Add edges to dagre graph
+    edges.forEach((edge) => {
+      dagreGraph.setEdge(edge.source, edge.target);
+    });
+
+    // Apply the dagre layout
+    dagre.layout(dagreGraph);
+
+    // Update node positions based on dagre layout
+    const layoutedNodes = nodes.map((node) => {
+      const dagreNode = dagreGraph.node(node.id);
+      return {
+        ...node,
+        position: {
+          x: dagreNode.x - dagreNode.width / 2,
+          y: dagreNode.y - dagreNode.height / 2,
+        },
+      };
+    });
+
+    // Additional level-based refinement for perfect hierarchical layout
+    return this.refineHierarchicalLayout(layoutedNodes);
+  }
+
+  private refineHierarchicalLayout(nodes: PerfectMindMapNode[]): PerfectMindMapNode[] {
+    // Group nodes by level
+    const nodesByLevel = nodes.reduce((acc, node) => {
+      const level = node.data.level;
+      if (!acc[level]) acc[level] = [];
+      acc[level].push(node);
+      return acc;
+    }, {} as Record<number, PerfectMindMapNode[]>);
+
+    // Refine positioning for each level
+    Object.keys(nodesByLevel).forEach((levelStr) => {
+      const level = parseInt(levelStr);
+      const levelNodes = nodesByLevel[level];
+      
+      if (levelNodes.length > 1) {
+        // Sort nodes by their current x position to maintain order
+        levelNodes.sort((a, b) => a.position.x - b.position.x);
+        
+        // Calculate optimal spacing
+        const totalWidth = 1200; // Total available width
+        const nodeSpacing = Math.max(250, totalWidth / levelNodes.length);
+        const startX = -(totalWidth / 2) + (nodeSpacing / 2);
+        
+        // Redistribute nodes horizontally with perfect spacing
+        levelNodes.forEach((node, index) => {
+          node.position.x = startX + (index * nodeSpacing);
+          
+          // Set specific Y positions based on level
+          switch (level) {
+            case 1: // Central node
+              node.position.y = 0;
+              break;
+            case 2: // Main branches
+              node.position.y = 150;
+              break;
+            case 3: // Files and queries
+              node.position.y = 350;
+              break;
+            case 4: // Analysis nodes
+              node.position.y = 550;
+              break;
+            default:
+              node.position.y = 150 + ((level - 1) * 200);
+          }
+        });
+      } else if (levelNodes.length === 1) {
+        // Center single nodes
+        const node = levelNodes[0];
+        node.position.x = 0;
+        
+        // Set Y position based on level
+        switch (level) {
+          case 1:
+            node.position.y = 0;
+            break;
+          case 2:
+            node.position.y = 150;
+            break;
+          case 3:
+            node.position.y = 350;
+            break;
+          case 4:
+            node.position.y = 550;
+            break;
+          default:
+            node.position.y = 150 + ((level - 1) * 200);
+        }
+      }
+    });
+
+    return nodes;
+  }
+
   private initializeAI() {
     try {
       const viteGoogleAIKey = import.meta.env.VITE_GOOGLE_AI_API_KEY;
@@ -160,13 +288,11 @@ class PerfectMindMapService {
     console.log("🚀 Generating combined Perfect + Dynamic Mind Map...");
 
     const nodes: PerfectMindMapNode[] = [];
-    const edges: PerfectMindMapEdge[] = [];
-
-    // LAYER 1: Central Brain Node
+    const edges: PerfectMindMapEdge[] = [];    // LAYER 1: Central Brain Node
     const centralNode: PerfectMindMapNode = {
       id: "central-brain",
       type: "central",
-      position: { x: 400, y: 300 },
+      position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
       data: {
         label: "🧠 AI Research Brain",
         level: 1,
@@ -184,11 +310,10 @@ class PerfectMindMapService {
     const fileBranchId = "files-branch";
     const queryBranchId = "queries-branch";
 
-    if (uploadedFiles.length > 0) {
-      const filesBranch: PerfectMindMapNode = {
+    if (uploadedFiles.length > 0) {      const filesBranch: PerfectMindMapNode = {
         id: fileBranchId,
         type: "branch",
-        position: { x: 200, y: 150 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: "📁 File Analysis",
           level: 2,
@@ -215,11 +340,10 @@ class PerfectMindMapService {
     }
 
     const userMessages = messages.filter((m) => m.type === "user");
-    if (userMessages.length > 0) {
-      const queriesBranch: PerfectMindMapNode = {
+    if (userMessages.length > 0) {      const queriesBranch: PerfectMindMapNode = {
         id: queryBranchId,
         type: "branch",
-        position: { x: 600, y: 150 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: "❓ Query Analysis",
           level: 2,
@@ -254,12 +378,10 @@ class PerfectMindMapService {
     for (let i = 0; i < uploadedFiles.length; i++) {
       const file = uploadedFiles[i];
       const fileNodeId = `file-${i}`;
-      fileNodeIds.push(fileNodeId);
-
-      const fileNode: PerfectMindMapNode = {
+      fileNodeIds.push(fileNodeId);      const fileNode: PerfectMindMapNode = {
         id: fileNodeId,
         type: "file",
-        position: { x: 100 + i * 200, y: 50 },
+        position: { x: 0, y: 0 }, // Initial position, will be overridden by Dagre
         data: {
           label: `📄 ${
             file.name.length > 20
@@ -402,10 +524,8 @@ class PerfectMindMapService {
       edges.push(...fallbackDynamic.edges);
       maxDepth = 4;
       dynamicLayers = 1;
-    }
-
-    // Apply final layout optimization
-    const layoutedNodes = this.optimizeLayout(nodes, edges);
+    }    // Apply Dagre layout for perfect hierarchical arrangement
+    const layoutedNodes = this.applyDagreLayout(nodes, edges);
 
     return {
       nodes: layoutedNodes,
@@ -445,7 +565,8 @@ Create JSON with:
   - content: detailed analysis (2-3 sentences)
   - concepts: 2-3 related concepts for deeper analysis
 
-JSON only:`;    try {
+JSON only:`;
+    try {
       const result = await this.retryWithBackoff(async () => {
         return await generateText({
           model: this.googleProvider("gemini-2.0-flash-lite"),
@@ -453,28 +574,28 @@ JSON only:`;    try {
           maxTokens: 800,
           temperature: 0.7,
         });
-      });      // Clean the response to extract only JSON for file analysis
+      }); // Clean the response to extract only JSON for file analysis
       let cleanText = result.text.trim();
-      
+
       // Remove markdown code blocks
-      if (cleanText.includes('```json')) {
-        const jsonStart = cleanText.indexOf('```json') + 7;
-        const jsonEnd = cleanText.indexOf('```', jsonStart);
+      if (cleanText.includes("```json")) {
+        const jsonStart = cleanText.indexOf("```json") + 7;
+        const jsonEnd = cleanText.indexOf("```", jsonStart);
         cleanText = cleanText.substring(jsonStart, jsonEnd);
-      } else if (cleanText.includes('```')) {
-        const firstBacktick = cleanText.indexOf('```');
-        const secondBacktick = cleanText.indexOf('```', firstBacktick + 3);
+      } else if (cleanText.includes("```")) {
+        const firstBacktick = cleanText.indexOf("```");
+        const secondBacktick = cleanText.indexOf("```", firstBacktick + 3);
         if (secondBacktick > -1) {
           cleanText = cleanText.substring(firstBacktick + 3, secondBacktick);
         }
       }
-      
+
       // Remove any remaining backticks and clean up
-      cleanText = cleanText.replace(/```/g, '').replace(/`/g, '').trim();
-      
+      cleanText = cleanText.replace(/```/g, "").replace(/`/g, "").trim();
+
       // Find JSON object boundaries
-      const jsonStart = cleanText.indexOf('{');
-      const jsonEnd = cleanText.lastIndexOf('}');
+      const jsonStart = cleanText.indexOf("{");
+      const jsonEnd = cleanText.lastIndexOf("}");
       if (jsonStart > -1 && jsonEnd > -1) {
         cleanText = cleanText.substring(jsonStart, jsonEnd + 1);
       }
@@ -484,7 +605,8 @@ JSON only:`;    try {
       // Create analysis nodes (Layer 4)
       for (let i = 0; i < (analysis.analyses || []).length; i++) {
         const analysisItem = analysis.analyses[i];
-        const analysisNodeId = `${fileNodeId}-analysis-${i}`;        const analysisNode: PerfectMindMapNode = {
+        const analysisNodeId = `${fileNodeId}-analysis-${i}`;
+        const analysisNode: PerfectMindMapNode = {
           id: analysisNodeId,
           type: "analysis",
           position: { x: 0, y: 0 },
@@ -493,13 +615,15 @@ JSON only:`;    try {
             level: 4,
             nodeType: "File Analysis",
             summary: `Analysis: ${analysisItem.topic}`,
-            content: `📋 Definition: ${analysisItem.topic} analysis of ${file.name}
+            content: `📋 Definition: ${analysisItem.topic} analysis of ${
+              file.name
+            }
             
 📝 Description: ${analysisItem.content}
 
 🔗 Connections: This analysis connects to the parent file through detailed examination of ${analysisItem.topic.toLowerCase()} aspects.
 
-💡 Insights: Key findings include ${(analysisItem.concepts || []).join(', ')}`,
+💡 Insights: Key findings include ${(analysisItem.concepts || []).join(", ")}`,
             fullText: analysisItem.content,
             keywords: analysisItem.concepts || [],
             children: [],
@@ -524,7 +648,8 @@ JSON only:`;    try {
         // Create concept nodes (Layer 5)
         for (let j = 0; j < (analysisItem.concepts || []).length; j++) {
           const concept = analysisItem.concepts[j];
-          const conceptNodeId = `${analysisNodeId}-concept-${j}`;          const conceptNode: PerfectMindMapNode = {
+          const conceptNodeId = `${analysisNodeId}-concept-${j}`;
+          const conceptNode: PerfectMindMapNode = {
             id: conceptNodeId,
             type: "dynamic",
             position: { x: 0, y: 0 },
@@ -598,35 +723,36 @@ Create JSON with:
 
 JSON only:`;
 
-    try {      const result = await this.retryWithBackoff(async () => {
+    try {
+      const result = await this.retryWithBackoff(async () => {
         return await generateText({
           model: this.googleProvider("gemini-2.0-flash-lite"),
           prompt,
           maxTokens: 800,
           temperature: 0.7,
         });
-      });      // Clean the response to extract only JSON for query analysis
+      }); // Clean the response to extract only JSON for query analysis
       let cleanText = result.text.trim();
-      
+
       // Remove markdown code blocks
-      if (cleanText.includes('```json')) {
-        const jsonStart = cleanText.indexOf('```json') + 7;
-        const jsonEnd = cleanText.indexOf('```', jsonStart);
+      if (cleanText.includes("```json")) {
+        const jsonStart = cleanText.indexOf("```json") + 7;
+        const jsonEnd = cleanText.indexOf("```", jsonStart);
         cleanText = cleanText.substring(jsonStart, jsonEnd);
-      } else if (cleanText.includes('```')) {
-        const firstBacktick = cleanText.indexOf('```');
-        const secondBacktick = cleanText.indexOf('```', firstBacktick + 3);
+      } else if (cleanText.includes("```")) {
+        const firstBacktick = cleanText.indexOf("```");
+        const secondBacktick = cleanText.indexOf("```", firstBacktick + 3);
         if (secondBacktick > -1) {
           cleanText = cleanText.substring(firstBacktick + 3, secondBacktick);
         }
       }
-      
+
       // Remove any remaining backticks and clean up
-      cleanText = cleanText.replace(/```/g, '').replace(/`/g, '').trim();
-      
+      cleanText = cleanText.replace(/```/g, "").replace(/`/g, "").trim();
+
       // Find JSON object boundaries
-      const jsonStart = cleanText.indexOf('{');
-      const jsonEnd = cleanText.lastIndexOf('}');
+      const jsonStart = cleanText.indexOf("{");
+      const jsonEnd = cleanText.lastIndexOf("}");
       if (jsonStart > -1 && jsonEnd > -1) {
         cleanText = cleanText.substring(jsonStart, jsonEnd + 1);
       }
@@ -636,7 +762,8 @@ JSON only:`;
       // Create insight nodes (Layer 4)
       for (let i = 0; i < (analysis.insights || []).length; i++) {
         const insight = analysis.insights[i];
-        const insightNodeId = `${queryNodeId}-insight-${i}`;        const insightNode: PerfectMindMapNode = {
+        const insightNodeId = `${queryNodeId}-insight-${i}`;
+        const insightNode: PerfectMindMapNode = {
           id: insightNodeId,
           type: "analysis",
           position: { x: 0, y: 0 },
@@ -645,13 +772,15 @@ JSON only:`;
             level: 4,
             nodeType: "Query Insight",
             summary: `Insight: ${insight.aspect}`,
-            content: `🎯 Definition: ${insight.aspect} analysis of the user query.
+            content: `🎯 Definition: ${
+              insight.aspect
+            } analysis of the user query.
 
 📝 Explanation: ${insight.explanation}
 
 🔗 Connections: This insight connects to the original query through ${insight.aspect.toLowerCase()} examination and relates to user intent understanding.
 
-💡 Key Points: ${(insight.connections || []).join(', ')}`,
+💡 Key Points: ${(insight.connections || []).join(", ")}`,
             fullText: insight.explanation,
             keywords: insight.connections || [],
             children: [],
@@ -677,7 +806,6 @@ JSON only:`;
         for (let j = 0; j < (insight.connections || []).length; j++) {
           const connection = insight.connections[j];
           const connectionNodeId = `${insightNodeId}-connection-${j}`;
-
           const connectionNode: PerfectMindMapNode = {
             id: connectionNodeId,
             type: "dynamic",
@@ -686,8 +814,15 @@ JSON only:`;
               label: `🔗 ${connection}`,
               level: 5,
               nodeType: "Connection",
-              summary: connection,
-              content: `Connected idea: ${connection}`,
+              summary: `Connection: ${connection}`,
+              content: `🎯 Definition: ${connection} represents a connected idea from the query analysis.
+
+📖 Description: This connection shows how different aspects of the query relate to broader concepts and understanding.
+
+🔗 Relationships: Links ${insight.aspect} to related concepts and extends the analytical depth.
+
+💭 Context: Helps build a comprehensive understanding of the query's implications and connections.`,
+              fullText: `Connected idea: ${connection}`,
               children: [],
               geminiGenerated: true,
               parentId: insightNodeId,

@@ -89,7 +89,7 @@ const ChatInput = ({
             className="hidden"
             ref={fileInputRef}
           />
-
+          
           <Button
             variant="outline"
             onClick={handleUploadClick}
