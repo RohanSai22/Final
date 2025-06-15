@@ -445,8 +445,7 @@ Create JSON with:
   - content: detailed analysis (2-3 sentences)
   - concepts: 2-3 related concepts for deeper analysis
 
-JSON only:`;
-    try {
+JSON only:`;    try {
       const result = await this.retryWithBackoff(async () => {
         return await generateText({
           model: this.googleProvider("gemini-2.0-flash-lite"),
@@ -454,28 +453,28 @@ JSON only:`;
           maxTokens: 800,
           temperature: 0.7,
         });
-      }); // Clean the response to extract only JSON for file analysis
+      });      // Clean the response to extract only JSON for file analysis
       let cleanText = result.text.trim();
-
+      
       // Remove markdown code blocks
-      if (cleanText.includes("```json")) {
-        const jsonStart = cleanText.indexOf("```json") + 7;
-        const jsonEnd = cleanText.indexOf("```", jsonStart);
+      if (cleanText.includes('```json')) {
+        const jsonStart = cleanText.indexOf('```json') + 7;
+        const jsonEnd = cleanText.indexOf('```', jsonStart);
         cleanText = cleanText.substring(jsonStart, jsonEnd);
-      } else if (cleanText.includes("```")) {
-        const firstBacktick = cleanText.indexOf("```");
-        const secondBacktick = cleanText.indexOf("```", firstBacktick + 3);
+      } else if (cleanText.includes('```')) {
+        const firstBacktick = cleanText.indexOf('```');
+        const secondBacktick = cleanText.indexOf('```', firstBacktick + 3);
         if (secondBacktick > -1) {
           cleanText = cleanText.substring(firstBacktick + 3, secondBacktick);
         }
       }
-
+      
       // Remove any remaining backticks and clean up
-      cleanText = cleanText.replace(/```/g, "").replace(/`/g, "").trim();
-
+      cleanText = cleanText.replace(/```/g, '').replace(/`/g, '').trim();
+      
       // Find JSON object boundaries
-      const jsonStart = cleanText.indexOf("{");
-      const jsonEnd = cleanText.lastIndexOf("}");
+      const jsonStart = cleanText.indexOf('{');
+      const jsonEnd = cleanText.lastIndexOf('}');
       if (jsonStart > -1 && jsonEnd > -1) {
         cleanText = cleanText.substring(jsonStart, jsonEnd + 1);
       }
@@ -486,6 +485,7 @@ JSON only:`;
       for (let i = 0; i < (analysis.analyses || []).length; i++) {
         const analysisItem = analysis.analyses[i];
         const analysisNodeId = `${fileNodeId}-analysis-${i}`;
+
         const analysisNode: PerfectMindMapNode = {
           id: analysisNodeId,
           type: "analysis",
@@ -494,17 +494,8 @@ JSON only:`;
             label: `🔍 ${analysisItem.topic}`,
             level: 4,
             nodeType: "File Analysis",
-            summary: `Analysis: ${analysisItem.topic}`,
-            content: `📋 Definition: ${analysisItem.topic} analysis of ${
-              file.name
-            }
-            
-📝 Description: ${analysisItem.content}
-
-🔗 Connections: This analysis connects to the parent file through detailed examination of ${analysisItem.topic.toLowerCase()} aspects.
-
-💡 Insights: Key findings include ${(analysisItem.concepts || []).join(", ")}`,
-            fullText: analysisItem.content,
+            summary: analysisItem.topic,
+            content: analysisItem.content,
             keywords: analysisItem.concepts || [],
             children: [],
             geminiGenerated: true,
@@ -529,6 +520,7 @@ JSON only:`;
         for (let j = 0; j < (analysisItem.concepts || []).length; j++) {
           const concept = analysisItem.concepts[j];
           const conceptNodeId = `${analysisNodeId}-concept-${j}`;
+
           const conceptNode: PerfectMindMapNode = {
             id: conceptNodeId,
             type: "dynamic",
@@ -537,15 +529,8 @@ JSON only:`;
               label: `💡 ${concept}`,
               level: 5,
               nodeType: "Concept",
-              summary: `Concept: ${concept}`,
-              content: `🎯 Definition: ${concept} is a key concept derived from ${analysisItem.topic} analysis.
-
-📖 Description: This concept represents an important aspect identified in the file analysis.
-
-🔗 Connections: Connected to ${analysisItem.topic} analysis and relates to the broader context of ${file.name}.
-
-💭 Context: This concept helps understand the deeper meanings and relationships within the analyzed content.`,
-              fullText: `Related concept: ${concept}`,
+              summary: concept,
+              content: `Related concept: ${concept}`,
               children: [],
               geminiGenerated: true,
               parentId: analysisNodeId,
@@ -603,36 +588,35 @@ Create JSON with:
 
 JSON only:`;
 
-    try {
-      const result = await this.retryWithBackoff(async () => {
+    try {      const result = await this.retryWithBackoff(async () => {
         return await generateText({
           model: this.googleProvider("gemini-2.0-flash-lite"),
           prompt,
           maxTokens: 800,
           temperature: 0.7,
         });
-      }); // Clean the response to extract only JSON for query analysis
+      });      // Clean the response to extract only JSON for query analysis
       let cleanText = result.text.trim();
-
+      
       // Remove markdown code blocks
-      if (cleanText.includes("```json")) {
-        const jsonStart = cleanText.indexOf("```json") + 7;
-        const jsonEnd = cleanText.indexOf("```", jsonStart);
+      if (cleanText.includes('```json')) {
+        const jsonStart = cleanText.indexOf('```json') + 7;
+        const jsonEnd = cleanText.indexOf('```', jsonStart);
         cleanText = cleanText.substring(jsonStart, jsonEnd);
-      } else if (cleanText.includes("```")) {
-        const firstBacktick = cleanText.indexOf("```");
-        const secondBacktick = cleanText.indexOf("```", firstBacktick + 3);
+      } else if (cleanText.includes('```')) {
+        const firstBacktick = cleanText.indexOf('```');
+        const secondBacktick = cleanText.indexOf('```', firstBacktick + 3);
         if (secondBacktick > -1) {
           cleanText = cleanText.substring(firstBacktick + 3, secondBacktick);
         }
       }
-
+      
       // Remove any remaining backticks and clean up
-      cleanText = cleanText.replace(/```/g, "").replace(/`/g, "").trim();
-
+      cleanText = cleanText.replace(/```/g, '').replace(/`/g, '').trim();
+      
       // Find JSON object boundaries
-      const jsonStart = cleanText.indexOf("{");
-      const jsonEnd = cleanText.lastIndexOf("}");
+      const jsonStart = cleanText.indexOf('{');
+      const jsonEnd = cleanText.lastIndexOf('}');
       if (jsonStart > -1 && jsonEnd > -1) {
         cleanText = cleanText.substring(jsonStart, jsonEnd + 1);
       }
@@ -643,6 +627,7 @@ JSON only:`;
       for (let i = 0; i < (analysis.insights || []).length; i++) {
         const insight = analysis.insights[i];
         const insightNodeId = `${queryNodeId}-insight-${i}`;
+
         const insightNode: PerfectMindMapNode = {
           id: insightNodeId,
           type: "analysis",
@@ -651,17 +636,8 @@ JSON only:`;
             label: `🧠 ${insight.aspect}`,
             level: 4,
             nodeType: "Query Insight",
-            summary: `Insight: ${insight.aspect}`,
-            content: `🎯 Definition: ${
-              insight.aspect
-            } analysis of the user query.
-
-📝 Explanation: ${insight.explanation}
-
-🔗 Connections: This insight connects to the original query through ${insight.aspect.toLowerCase()} examination and relates to user intent understanding.
-
-💡 Key Points: ${(insight.connections || []).join(", ")}`,
-            fullText: insight.explanation,
+            summary: insight.aspect,
+            content: insight.explanation,
             keywords: insight.connections || [],
             children: [],
             geminiGenerated: true,
@@ -686,6 +662,7 @@ JSON only:`;
         for (let j = 0; j < (insight.connections || []).length; j++) {
           const connection = insight.connections[j];
           const connectionNodeId = `${insightNodeId}-connection-${j}`;
+
           const connectionNode: PerfectMindMapNode = {
             id: connectionNodeId,
             type: "dynamic",
@@ -694,15 +671,8 @@ JSON only:`;
               label: `🔗 ${connection}`,
               level: 5,
               nodeType: "Connection",
-              summary: `Connection: ${connection}`,
-              content: `🎯 Definition: ${connection} represents a connected idea from the query analysis.
-
-📖 Description: This connection shows how different aspects of the query relate to broader concepts and understanding.
-
-🔗 Relationships: Links ${insight.aspect} to related concepts and extends the analytical depth.
-
-💭 Context: Helps build a comprehensive understanding of the query's implications and connections.`,
-              fullText: `Connected idea: ${connection}`,
+              summary: connection,
+              content: `Connected idea: ${connection}`,
               children: [],
               geminiGenerated: true,
               parentId: insightNodeId,

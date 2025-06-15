@@ -325,6 +325,16 @@ class ChatSessionStorageService {
     return localStorage.getItem(CURRENT_SESSION_KEY);
   }
 
+  // Set current session ID
+  setCurrentSessionId(sessionId: string): void {
+    try {
+      localStorage.setItem(CURRENT_SESSION_KEY, sessionId);
+      console.log("Current session ID set:", sessionId);
+    } catch (error) {
+      console.error("Error setting current session ID:", error);
+    }
+  }
+
   // Delete a session and all associated data
   deleteSession(sessionId: string): void {
     try {
@@ -373,36 +383,110 @@ class ChatSessionStorageService {
       console.error("Error clearing all sessions:", error);
       throw new Error("Failed to clear all sessions");
     }
-  }
-  // Save thinking process for a specific message
+  } // Save thinking process for a specific message
   saveThinkingProcess(
     messageId: string,
     thinkingData: AIServiceThinkingStreamData[]
   ): void {
     try {
-      localStorage.setItem(
-        `thinking_process_${messageId}`,
-        JSON.stringify(thinkingData)
+      const key = `thinking_process_${messageId}`;
+      const dataToSave = {
+        messageId,
+        timestamp: new Date().toISOString(),
+        data: thinkingData,
+      };
+
+      localStorage.setItem(key, JSON.stringify(dataToSave));
+      console.log(
+        "ChatSessionStorage: Thinking process saved for message:",
+        messageId,
+        "with",
+        thinkingData.length,
+        "data points"
       );
-      console.log("Thinking process saved for message:", messageId);
+
+      // Also store in a master index for better tracking
+      const indexKey = "thinking_process_index";
+      let index = [];
+      try {
+        const existingIndex = localStorage.getItem(indexKey);
+        if (existingIndex) {
+          index = JSON.parse(existingIndex);
+        }
+      } catch (e) {
+        index = [];
+      }
+
+      if (!index.includes(messageId)) {
+        index.push(messageId);
+        localStorage.setItem(indexKey, JSON.stringify(index));
+      }
     } catch (error) {
       console.error("Error saving thinking process:", error);
     }
   }
-
   // Load thinking process for a specific message
   loadThinkingProcess(messageId: string): AIServiceThinkingStreamData[] | null {
     try {
-      const data = localStorage.getItem(`thinking_process_${messageId}`);
-      return data ? JSON.parse(data) : null;
+      const key = `thinking_process_${messageId}`;
+      const data = localStorage.getItem(key);
+      if (!data) {
+        console.log(
+          "ChatSessionStorage: No thinking data found for message:",
+          messageId
+        );
+        return null;
+      }
+
+      const parsedData = JSON.parse(data);
+
+      // Handle both old format (direct array) and new format (object with metadata)
+      if (Array.isArray(parsedData)) {
+        console.log(
+          "ChatSessionStorage: Loaded thinking data (old format) for message:",
+          messageId,
+          "with",
+          parsedData.length,
+          "items"
+        );
+        return parsedData;
+      } else if (parsedData.data && Array.isArray(parsedData.data)) {
+        console.log(
+          "ChatSessionStorage: Loaded thinking data (new format) for message:",
+          messageId,
+          "with",
+          parsedData.data.length,
+          "items"
+        );
+        return parsedData.data;
+      }
+
+      console.log(
+        "ChatSessionStorage: Invalid thinking data format for message:",
+        messageId
+      );
+      return null;
     } catch (error) {
       console.error("Error loading thinking process:", error);
       return null;
     }
-  }
-  // Check if thinking process exists for a message
+  } // Check if thinking process exists for a message
   hasThinkingProcess(messageId: string): boolean {
-    return localStorage.getItem(`thinking_process_${messageId}`) !== null;
+    try {
+      const key = `thinking_process_${messageId}`;
+      const data = localStorage.getItem(key);
+      const hasData = data !== null;
+      console.log(
+        "ChatSessionStorage: Checking thinking data for message:",
+        messageId,
+        "exists:",
+        hasData
+      );
+      return hasData;
+    } catch (error) {
+      console.error("Error checking thinking process:", error);
+      return false;
+    }
   }
 
   // =====================================================================================

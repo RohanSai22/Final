@@ -334,43 +334,27 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
 
   // =====================================================================================
   // TYPE CONVERSION UTILITIES
-  // =====================================================================================  // Convert PerfectMindMapEdge to ReactFlow Edge format
+  // =====================================================================================
+
+  // Convert PerfectMindMapEdge to ReactFlow Edge format
   const convertToReactFlowEdges = useCallback(
     (perfectEdges: PerfectMindMapEdge[]): Edge[] => {
-      return perfectEdges.map((edge) => {
-        // Map custom edge types to standard React Flow types
-        let reactFlowType: string;
-        switch (edge.type) {
-          case "hierarchical":
-            reactFlowType = "smoothstep";
-            break;
-          case "related":
-            reactFlowType = "bezier";
-            break;
-          case "analysis":
-            reactFlowType = "step";
-            break;
-          default:
-            reactFlowType = "smoothstep";
-        }
-
-        return {
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          type: reactFlowType,
-          label: edge.label,
-          animated: edge.animated,
-          style: edge.style,
-          labelStyle: edge.labelStyle,
-          markerEnd: edge.markerEnd
-            ? {
-                type: MarkerType.ArrowClosed,
-                color: edge.markerEnd.color,
-              }
-            : undefined,
-        };
-      });
+      return perfectEdges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+        label: edge.label,
+        animated: edge.animated,
+        style: edge.style,
+        labelStyle: edge.labelStyle,
+        markerEnd: edge.markerEnd
+          ? {
+              type: MarkerType.ArrowClosed,
+              color: edge.markerEnd.color,
+            }
+          : undefined,
+      }));
     },
     []
   );
@@ -390,9 +374,11 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
   // RENDER
   // =====================================================================================
   return (
-    <div
+    <div 
       className={`perfect-mind-map h-full w-full relative ${className} ${
-        isFullscreen ? "fixed inset-0 z-50 bg-white" : ""
+        isFullscreen 
+          ? 'fixed inset-0 z-50 bg-white' 
+          : ''
       }`}
     >
       <ReactFlow
@@ -417,6 +403,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
           className="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg"
           showInteractive={false}
         />
+
         {/* Intelligent MiniMap */}
         <MiniMap
           className="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg"
@@ -424,13 +411,15 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
           pannable
           nodeColor={getNodeColor}
         />
+
         {/* Subtle Background */}
         <Background
           variant={BackgroundVariant.Dots}
           gap={20}
           size={1}
           color="#e2e8f0"
-        />{" "}
+        />
+
         {/* Control Panel */}
         <Panel position="top-left" className="m-4">
           <Card className="bg-white/90 backdrop-blur-sm border border-gray-200 shadow-lg">
@@ -438,17 +427,6 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
               <CardTitle className="text-sm flex items-center gap-2">
                 <Brain className="w-4 h-4 text-purple-600" />
                 Perfect Mind Map
-                {isFullscreen && (
-                  <Button
-                    onClick={() => setIsFullscreen(false)}
-                    size="sm"
-                    variant="ghost"
-                    className="ml-auto h-6 w-6 p-0"
-                    title="Exit Fullscreen"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
@@ -468,6 +446,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
                   )}
                   Regenerate
                 </Button>
+
                 <Button
                   onClick={downloadAsPNG}
                   disabled={isSharing || !mindMapData}
@@ -479,8 +458,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
                   ) : (
                     <Download className="w-3 h-3" />
                   )}
-                </Button>{" "}
-                <Button
+                </Button>                <Button
                   onClick={shareToSocial}
                   disabled={!mindMapData}
                   size="sm"
@@ -488,6 +466,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
                 >
                   <Share2 className="w-3 h-3" />
                 </Button>
+
                 <Button
                   onClick={() => setIsFullscreen(!isFullscreen)}
                   disabled={!mindMapData}
@@ -576,6 +555,7 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
             </CardContent>
           </Card>
         </Panel>
+
         {/* Node Details Panel */}
         {showDetails && selectedNode && (
           <Panel position="top-right" className="m-4">

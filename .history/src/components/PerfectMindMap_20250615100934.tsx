@@ -334,7 +334,8 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
 
   // =====================================================================================
   // TYPE CONVERSION UTILITIES
-  // =====================================================================================  // Convert PerfectMindMapEdge to ReactFlow Edge format
+  // =====================================================================================
+  // Convert PerfectMindMapEdge to ReactFlow Edge format
   const convertToReactFlowEdges = useCallback(
     (perfectEdges: PerfectMindMapEdge[]): Edge[] => {
       return perfectEdges.map((edge) => {
@@ -363,14 +364,13 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
           animated: edge.animated,
           style: edge.style,
           labelStyle: edge.labelStyle,
-          markerEnd: edge.markerEnd
-            ? {
-                type: MarkerType.ArrowClosed,
-                color: edge.markerEnd.color,
-              }
-            : undefined,
-        };
-      });
+        markerEnd: edge.markerEnd
+          ? {
+              type: MarkerType.ArrowClosed,
+              color: edge.markerEnd.color,
+            }
+          : undefined,
+      }));
     },
     []
   );

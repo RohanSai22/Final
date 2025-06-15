@@ -860,9 +860,7 @@ const ChatPage = () => {
     try {
       setIsProcessing(true);
 
-      console.log(
-        "ChatPage: Generating perfect mind map with dynamic layers..."
-      );
+      console.log("ChatPage: Generating perfect mind map with dynamic layers...");
 
       // Use the perfect mind map service (now includes dynamic layers)
       const mindMapData = await perfectMindMapService.generatePerfectMindMap(
@@ -919,9 +917,7 @@ const ChatPage = () => {
       setIsProcessing(true);
       setPerfectMindMapData(null);
 
-      console.log(
-        "ChatPage: Regenerating perfect mind map with dynamic layers..."
-      );
+      console.log("ChatPage: Regenerating perfect mind map with dynamic layers...");
 
       // Use the perfect mind map service for regeneration
       const mindMapData = await perfectMindMapService.generatePerfectMindMap(

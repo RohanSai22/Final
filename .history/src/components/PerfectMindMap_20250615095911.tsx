@@ -334,43 +334,27 @@ const PerfectMindMapContent: React.FC<PerfectMindMapProps> = ({
 
   // =====================================================================================
   // TYPE CONVERSION UTILITIES
-  // =====================================================================================  // Convert PerfectMindMapEdge to ReactFlow Edge format
+  // =====================================================================================
+
+  // Convert PerfectMindMapEdge to ReactFlow Edge format
   const convertToReactFlowEdges = useCallback(
     (perfectEdges: PerfectMindMapEdge[]): Edge[] => {
-      return perfectEdges.map((edge) => {
-        // Map custom edge types to standard React Flow types
-        let reactFlowType: string;
-        switch (edge.type) {
-          case "hierarchical":
-            reactFlowType = "smoothstep";
-            break;
-          case "related":
-            reactFlowType = "bezier";
-            break;
-          case "analysis":
-            reactFlowType = "step";
-            break;
-          default:
-            reactFlowType = "smoothstep";
-        }
-
-        return {
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          type: reactFlowType,
-          label: edge.label,
-          animated: edge.animated,
-          style: edge.style,
-          labelStyle: edge.labelStyle,
-          markerEnd: edge.markerEnd
-            ? {
-                type: MarkerType.ArrowClosed,
-                color: edge.markerEnd.color,
-              }
-            : undefined,
-        };
-      });
+      return perfectEdges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+        label: edge.label,
+        animated: edge.animated,
+        style: edge.style,
+        labelStyle: edge.labelStyle,
+        markerEnd: edge.markerEnd
+          ? {
+              type: MarkerType.ArrowClosed,
+              color: edge.markerEnd.color,
+            }
+          : undefined,
+      }));
     },
     []
   );
